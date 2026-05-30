@@ -88,6 +88,53 @@ class ImageProcessor {
     }
 
     /**
+     * Zmienia rotację obrazu na określony kąt w stopniach (0-360)
+     * @param {string} id - ID obrazu
+     * @param {number} angle - kąt obrotu w stopniach (0-360)
+     */
+    rotateImage(id, angle = 0) {
+        const imageObj = this.getImage(id);
+        if (!imageObj) return null;
+
+        let targetRotation = angle % 360;
+        if (targetRotation < 0) targetRotation += 360;
+
+        imageObj.rotation = targetRotation;
+
+        // Zaktualizuj buforowany obrócony canvas
+        if (targetRotation === 0) {
+            imageObj.rotatedCanvas = null;
+        } else {
+            const rad = (targetRotation * Math.PI) / 180;
+            const cos = Math.abs(Math.cos(rad));
+            const sin = Math.abs(Math.sin(rad));
+
+            const newWidth = Math.round(imageObj.width * cos + imageObj.height * sin);
+            const newHeight = Math.round(imageObj.width * sin + imageObj.height * cos);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+
+            const ctx = canvas.getContext('2d');
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(rad);
+            ctx.drawImage(imageObj.imgElement, -imageObj.width / 2, -imageObj.height / 2);
+            imageObj.rotatedCanvas = canvas;
+        }
+
+        return imageObj;
+    }
+
+    /**
+     * Zwraca obrócony canvas lub oryginalny element obrazu
+     */
+    getRotatedCanvasOrImage(imageObj) {
+        if (!imageObj) return null;
+        return imageObj.rotatedCanvas || imageObj.imgElement;
+    }
+
+    /**
      * Mapuje pojedynczy obraz na całą siatkę heksów
      * Oblicza regiony kadrowania (cropRegion) dla każdej komórki
      */
@@ -101,8 +148,8 @@ class ImageProcessor {
         const bbox = gridManager.getBoundingBoxMm();
         if (bbox.width === 0 || bbox.height === 0) return;
 
-        const imgWidth = imageObj.width;
-        const imgHeight = imageObj.height;
+        const imgWidth = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
+        const imgHeight = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.height : imageObj.height;
 
         const imgAspect = imgWidth / imgHeight;
         const gridAspect = bbox.width / bbox.height;
@@ -116,8 +163,8 @@ class ImageProcessor {
             scale = imgWidth / bbox.width;
         }
 
-        // Zastosuj współczynnik powiększenia obrazu (zoomFactor)
-        const zoomFactor = gridManager.config.singleImageScale || 1.0;
+        // Zastosuj współczynnik powiększenia obrazu (zoomFactor) z właściwości obrazu
+        const zoomFactor = imageObj.zoom || 1.0;
         const effectiveScale = scale / zoomFactor;
 
         // Wymiary siatki w pikselach przy efektywnej skali
@@ -181,8 +228,8 @@ class ImageProcessor {
         const orientation = gridManager.config.orientation;
         
         const hexDim = HexMath.getHexDimensions(hexSize, orientation);
-        const imgWidth = imageObj.width;
-        const imgHeight = imageObj.height;
+        const imgWidth = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
+        const imgHeight = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.height : imageObj.height;
 
         const cellAspect = hexDim.width / hexDim.height;
         const imgAspect = imgWidth / imgHeight;
@@ -199,8 +246,17 @@ class ImageProcessor {
             y = (imgHeight - h) / 2;
         }
 
+        // Zastosuj zoom (skala od 1.0 w górę)
+        const scale = imageObj.zoom || 1.0;
+        const zoomedW = w / scale;
+        const zoomedH = h / scale;
+        
+        // Wycentruj pomniejszony kadr
+        x = x + (w - zoomedW) / 2;
+        y = y + (h - zoomedH) / 2;
+
         cell.imageId = imageObj.id;
-        cell.cropRegion = { x, y, w, h };
+        cell.cropRegion = { x, y, w: zoomedW, h: zoomedH };
     }
 
     /**
@@ -268,15 +324,16 @@ class ImageProcessor {
 
         // 3. Wytnij odpowiedni fragment obrazu i narysuj go na wyjściowym canvasie
         const crop = cell.cropRegion;
+        const sourceElement = this.getRotatedCanvasOrImage(imageObj);
         if (crop) {
             ctx.drawImage(
-                imageObj.imgElement,
+                sourceElement,
                 crop.x, crop.y, crop.w, crop.h, // Skąd (z obrazu źródłowego)
                 0, 0, canvasW, canvasH           // Dokąd (na cały wyjściowy canvas)
             );
         } else {
             // Failsafe: cover fit
-            ctx.drawImage(imageObj.imgElement, 0, 0, canvasW, canvasH);
+            ctx.drawImage(sourceElement, 0, 0, canvasW, canvasH);
         }
 
         return canvas;

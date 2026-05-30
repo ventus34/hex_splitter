@@ -30,9 +30,45 @@ class DBStore {
         return new Promise((resolve, reject) => {
             const tx = db.transaction(this.STORE_NAME, 'readwrite');
             const store = tx.objectStore(this.STORE_NAME);
-            store.put({ id, name, blob, width, height });
+            store.put({ id, name, blob, width, height, rotation: 0, zoom: 1 });
             tx.oncomplete = () => resolve();
             tx.onerror = (e) => reject(e.target.error);
+        });
+    }
+
+    static async updateRotation(id, rotation) {
+        const db = await this.open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(this.STORE_NAME, 'readwrite');
+            const store = tx.objectStore(this.STORE_NAME);
+            const req = store.get(id);
+            req.onsuccess = () => {
+                const record = req.result;
+                if (record) {
+                    record.rotation = rotation;
+                    store.put(record);
+                }
+                resolve();
+            };
+            req.onerror = (e) => reject(e.target.error);
+        });
+    }
+
+    static async updateZoom(id, zoom) {
+        const db = await this.open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(this.STORE_NAME, 'readwrite');
+            const store = tx.objectStore(this.STORE_NAME);
+            const req = store.get(id);
+            req.onsuccess = () => {
+                const record = req.result;
+                if (record) {
+                    record.zoom = zoom;
+                    store.put(record);
+                }
+                resolve();
+            };
+            req.onerror = (e) => reject(e.target.error);
         });
     }
 
@@ -395,6 +431,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const mode = getActiveImageMode();
         if (mode === 'single' && imageProcessor.activeImageId) {
             singleImageZoomGroup?.classList.remove('hidden');
+            const activeImg = imageProcessor.getImage(imageProcessor.activeImageId);
+            if (activeImg && inputSingleImageZoom) {
+                const zoomVal = Math.round((activeImg.zoom || 1.0) * 100);
+                inputSingleImageZoom.value = zoomVal;
+                if (valSingleImageZoom) {
+                    valSingleImageZoom.textContent = `${zoomVal}%`;
+                }
+            }
         } else {
             singleImageZoomGroup?.classList.add('hidden');
         }
@@ -429,9 +473,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Zmiana skali powiększenia obrazu
     if (inputSingleImageZoom) {
-        inputSingleImageZoom.addEventListener('input', () => {
+        inputSingleImageZoom.addEventListener('input', async () => {
+            const val = parseInt(inputSingleImageZoom.value);
             if (valSingleImageZoom) {
-                valSingleImageZoom.textContent = `${inputSingleImageZoom.value}%`;
+                valSingleImageZoom.textContent = `${val}%`;
+            }
+            
+            // Synchronizacja w dół do obiektu obrazka i suwaka w bibliotece
+            if (imageProcessor.activeImageId) {
+                const activeImg = imageProcessor.getImage(imageProcessor.activeImageId);
+                if (activeImg) {
+                    activeImg.zoom = val / 100;
+                    await DBStore.updateZoom(activeImg.id, activeImg.zoom);
+                    
+                    // Znajdź suwak w UI i zaktualizuj
+                    const itemElement = imageList.querySelector(`.image-item[data-id="${activeImg.id}"]`);
+                    if (itemElement) {
+                        const itemSlider = itemElement.querySelector('.image-zoom-slider');
+                        if (itemSlider) itemSlider.value = val;
+                        const itemLabel = itemElement.querySelector('.image-item-control-row:nth-child(2) .control-label');
+                        if (itemLabel) itemLabel.textContent = `${i18n.t('image_zoom')} ${val}%`;
+                    }
+                }
             }
             handleGridConfigChange();
         });
@@ -514,9 +577,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         item.draggable = true;
         item.dataset.id = imageObj.id;
 
+        const mainRow = document.createElement('div');
+        mainRow.className = 'image-item-main';
+
         const img = document.createElement('img');
         img.src = imageObj.src;
-        item.appendChild(img);
+        mainRow.appendChild(img);
 
         const details = document.createElement('div');
         details.className = 'image-details';
@@ -528,10 +594,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const res = document.createElement('span');
         res.className = 'image-resolution';
-        res.textContent = `${imageObj.width}x${imageObj.height} px`;
+        
+        const updateResolutionText = () => {
+            const displayW = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
+            const displayH = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.height : imageObj.height;
+            res.textContent = `${displayW}x${displayH} px`;
+        };
+        updateResolutionText();
         details.appendChild(res);
 
-        item.appendChild(details);
+        mainRow.appendChild(details);
 
         // Przycisk usuwania
         const btnRemove = document.createElement('button');
@@ -569,7 +641,125 @@ document.addEventListener('DOMContentLoaded', async () => {
             preview.scheduleRender();
             saveProjectState();
         });
-        item.appendChild(btnRemove);
+        mainRow.appendChild(btnRemove);
+        item.appendChild(mainRow);
+
+        // Kontener suwaków rotacji i zoomu
+        const control = document.createElement('div');
+        control.className = 'image-item-control';
+
+        // 1. Rząd rotacji
+        const rotRow = document.createElement('div');
+        rotRow.className = 'image-item-control-row';
+
+        const rotLabel = document.createElement('span');
+        rotLabel.className = 'control-label';
+        const updateRotLabel = (deg) => {
+            rotLabel.textContent = `${i18n.t('image_rotation')} ${deg}°`;
+        };
+        updateRotLabel(imageObj.rotation || 0);
+
+        const rotSlider = document.createElement('input');
+        rotSlider.type = 'range';
+        rotSlider.className = 'form-range image-rotation-slider';
+        rotSlider.min = '0';
+        rotSlider.max = '360';
+        rotSlider.step = '1';
+        rotSlider.value = imageObj.rotation || 0;
+
+        rotSlider.addEventListener('mousedown', (e) => e.stopPropagation());
+
+        rotSlider.addEventListener('input', async () => {
+            const angle = parseInt(rotSlider.value);
+            updateRotLabel(angle);
+            imageProcessor.rotateImage(imageObj.id, angle);
+            await DBStore.updateRotation(imageObj.id, angle);
+            updateResolutionText();
+
+            const mode = getActiveImageMode();
+            if (mode === 'single') {
+                if (imageProcessor.activeImageId === imageObj.id) {
+                    imageProcessor.recalculateSingleImageMapping(gridManager);
+                }
+            } else if (mode === 'multi') {
+                gridManager.getAllCells().forEach(cell => {
+                    if (cell.imageId === imageObj.id) {
+                        imageProcessor.calculateCellCoverCrop(cell, imageObj, gridManager);
+                    }
+                });
+            }
+
+            planner.scheduleRender();
+            preview.scheduleRender();
+            saveProjectState();
+        });
+
+        rotRow.appendChild(rotLabel);
+        rotRow.appendChild(rotSlider);
+        control.appendChild(rotRow);
+
+        // 2. Rząd zoomu
+        const zoomRow = document.createElement('div');
+        zoomRow.className = 'image-item-control-row';
+
+        const zoomLabel = document.createElement('span');
+        zoomLabel.className = 'control-label';
+        const updateZoomLabel = (val) => {
+            zoomLabel.textContent = `${i18n.t('image_zoom')} ${val}%`;
+        };
+        updateZoomLabel(Math.round((imageObj.zoom || 1.0) * 100));
+
+        const zoomSlider = document.createElement('input');
+        zoomSlider.type = 'range';
+        zoomSlider.className = 'form-range image-zoom-slider';
+        zoomSlider.min = '100';
+        zoomSlider.max = '500';
+        zoomSlider.step = '5';
+        zoomSlider.value = Math.round((imageObj.zoom || 1.0) * 100);
+
+        zoomSlider.addEventListener('mousedown', (e) => e.stopPropagation());
+
+        zoomSlider.addEventListener('input', async () => {
+            const val = parseInt(zoomSlider.value);
+            updateZoomLabel(val);
+            imageObj.zoom = val / 100;
+            await DBStore.updateZoom(imageObj.id, imageObj.zoom);
+
+            // Synchronizacja z globalnym suwakiem w panelu bocznym
+            if (getActiveImageMode() === 'single' && imageProcessor.activeImageId === imageObj.id) {
+                if (inputSingleImageZoom) {
+                    inputSingleImageZoom.value = val;
+                }
+                if (valSingleImageZoom) {
+                    valSingleImageZoom.textContent = `${val}%`;
+                }
+                imageProcessor.recalculateSingleImageMapping(gridManager);
+            } else if (getActiveImageMode() === 'multi') {
+                gridManager.getAllCells().forEach(cell => {
+                    if (cell.imageId === imageObj.id) {
+                        imageProcessor.calculateCellCoverCrop(cell, imageObj, gridManager);
+                    }
+                });
+            }
+
+            planner.scheduleRender();
+            preview.scheduleRender();
+            saveProjectState();
+        });
+
+        zoomRow.appendChild(zoomLabel);
+        zoomRow.appendChild(zoomSlider);
+        control.appendChild(zoomRow);
+
+        // Zapobiegaj Drag&Drop przy interakcji z suwakami
+        control.addEventListener('mouseenter', () => {
+            item.setAttribute('draggable', 'false');
+        });
+        control.addEventListener('mouseleave', () => {
+            item.setAttribute('draggable', 'true');
+        });
+
+        item.appendChild(control);
 
         item.addEventListener('dragstart', (e) => {
             e.dataTransfer.setData('text/plain', imageObj.id);
@@ -874,10 +1064,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                         imgElement: img,
                         width: saved.width,
                         height: saved.height,
-                        src: url
+                        src: url,
+                        rotation: saved.rotation || 0,
+                        zoom: saved.zoom || 1.0
                     };
 
                     imageProcessor.images.set(saved.id, imageObj);
+                    if (imageObj.rotation !== 0) {
+                        imageProcessor.rotateImage(saved.id, 0); // Odtwórz obrócony canvas buforowany
+                    }
                     addDraggableImageToUI(imageObj);
                 }
                 updateMainImageSelector();

@@ -531,12 +531,12 @@ body {
 
 .image-item {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 6px;
     background-color: var(--bg-tertiary);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: 6px 10px;
+    padding: 10px;
     cursor: grab;
     user-select: none;
     transition: border-color 0.2s ease;
@@ -557,6 +557,13 @@ body {
     object-fit: cover;
     border-radius: 4px;
     background-color: #000;
+}
+
+.image-item-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
 }
 
 .image-details {
@@ -591,6 +598,35 @@ body {
 .btn-remove-image:hover {
     color: var(--danger);
     background-color: rgba(255, 23, 68, 0.1);
+}
+
+.image-item-control {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border);
+}
+
+.image-item-control-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.image-item-control-row .control-label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    min-width: 80px;
+    white-space: nowrap;
+}
+
+.image-item-control-row .form-range {
+    flex: 1;
+    margin: 0;
 }
 
 /* Buttons */

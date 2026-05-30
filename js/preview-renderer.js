@@ -216,16 +216,17 @@ class PreviewRenderer {
                 const drawW = hexDim.width * this.zoom;
                 const drawH = hexDim.height * this.zoom;
 
+                const sourceElement = this.imageProcessor.getRotatedCanvasOrImage(imageObj);
                 if (crop) {
                     drawCtx.drawImage(
-                        imageObj.imgElement,
+                        sourceElement,
                         crop.x, crop.y, crop.w, crop.h,
                         screenPos.x - drawW / 2, screenPos.y - drawH / 2,
                         drawW, drawH
                     );
                 } else {
                     drawCtx.drawImage(
-                        imageObj.imgElement,
+                        sourceElement,
                         screenPos.x - drawW / 2, screenPos.y - drawH / 2,
                         drawW, drawH
                     );

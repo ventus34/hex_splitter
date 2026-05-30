@@ -222,10 +222,13 @@ class WallPlanner {
                         const newCropX = cell.cropRegion.x - dx * scaleImgX;
                         const newCropY = cell.cropRegion.y - dy * scaleImgY;
 
+                        const imgWidth = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
+                        const imgHeight = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.height : imageObj.height;
+
                         const minX = 0;
-                        const maxX = imageObj.width - cell.cropRegion.w;
+                        const maxX = imgWidth - cell.cropRegion.w;
                         const minY = 0;
-                        const maxY = imageObj.height - cell.cropRegion.h;
+                        const maxY = imgHeight - cell.cropRegion.h;
 
                         cell.cropRegion.x = Math.max(minX, Math.min(maxX, newCropX));
                         cell.cropRegion.y = Math.max(minY, Math.min(maxY, newCropY));
@@ -405,8 +408,8 @@ class WallPlanner {
         const bbox = this.gridManager.getBoundingBoxMm();
 
         if (bbox.width > 0 && bbox.height > 0 && imageMode === 'single' && imageObj && this.interactionMode === 'image') {
-            const imgWidth = imageObj.width;
-            const imgHeight = imageObj.height;
+            const imgWidth = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
+            const imgHeight = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.height : imageObj.height;
             const imgAspect = imgWidth / imgHeight;
             const gridAspect = bbox.width / bbox.height;
 
@@ -436,9 +439,10 @@ class WallPlanner {
             const drawW = (imgWidth / effectiveScale) * this.zoom;
             const drawH = (imgHeight / effectiveScale) * this.zoom;
 
+            const sourceElement = this.imageProcessor.getRotatedCanvasOrImage(imageObj);
             this.ctx.save();
             this.ctx.globalAlpha = 0.35; // Przyciemnione tło
-            this.ctx.drawImage(imageObj.imgElement, screenPos.x, screenPos.y, drawW, drawH);
+            this.ctx.drawImage(sourceElement, screenPos.x, screenPos.y, drawW, drawH);
             this.ctx.restore();
         }
 
@@ -501,17 +505,18 @@ class WallPlanner {
                 const crop = cell.cropRegion;
                 const drawW = hexDim.width * this.zoom;
                 const drawH = hexDim.height * this.zoom;
+                const sourceElement = this.imageProcessor.getRotatedCanvasOrImage(imageObj);
 
                 if (crop) {
                     this.ctx.drawImage(
-                        imageObj.imgElement,
+                        sourceElement,
                         crop.x, crop.y, crop.w, crop.h,
                         screenPos.x - drawW / 2, screenPos.y - drawH / 2,
                         drawW, drawH
                     );
                 } else {
                     this.ctx.drawImage(
-                        imageObj.imgElement,
+                        sourceElement,
                         screenPos.x - drawW / 2, screenPos.y - drawH / 2,
                         drawW, drawH
                     );
