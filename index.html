@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="app_title">HexSplitter - Hexagonal Wall Planner</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- CSS -->
+    <link rel="stylesheet" href="css/style.css">
+    <!-- JSZip & FileSaver.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Top Navigation / Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <svg class="icon-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="12 2 22 7.5 22 18.5 12 24 2 18.5 2 7.5" />
+                </svg>
+                <div class="logo-text">
+                    <h1>HexSplitter</h1>
+                    <span data-i18n="app_subtitle">Hexagonal Wall Planner & Slicer</span>
+                </div>
+            </div>
+            
+            <div class="app-tabs">
+                <button class="tab-btn active" data-tab="tab-planner" data-i18n="tab_planner">Planning</button>
+                <button class="tab-btn" data-tab="tab-preview" data-i18n="tab_preview">Wall Preview</button>
+                <button class="tab-btn" data-tab="tab-instructions" data-i18n="tab_instructions">Assembly Guide</button>
+            </div>
+            
+            <div class="project-actions">
+                <select id="select-lang" class="form-select form-select-sm lang-selector" style="width: auto; padding: 4px 8px; margin-right: 12px; font-weight: 600; cursor: pointer; background: var(--panel-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px;">
+                    <option value="en" selected>EN</option>
+                    <option value="pl">PL</option>
+                </select>
+                <button id="btn-reset-project" class="btn btn-danger-outline btn-sm">
+                    <svg viewBox="0 0 24 24" class="icon-inline"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                    <span data-i18n="btn_reset_project">Clear project</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Workspace Area -->
+        <main class="app-body">
+            
+            <!-- LEFT PANEL: Image Library & Grid Setup -->
+            <aside class="panel left-panel">
+                <section class="panel-section">
+                    <h2 class="section-title">
+                        <svg class="icon-inline" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-5.04-6.71l-2.75 3.54-1.96-2.36L6.5 17h11l-3.54-4.71z"/></svg>
+                        <span data-i18n="image_library">Image Library</span>
+                    </h2>
+                    
+                    <div id="dropzone" class="dropzone">
+                        <input type="file" id="file-input" multiple accept="image/*" class="file-input-hidden">
+                        <div class="dropzone-text">
+                            <svg class="icon-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                            </svg>
+                            <p class="primary-text" data-i18n="drag_images_here">Drag images here</p>
+                            <p class="secondary-text" data-i18n="or_click_to_select">or click to select files</p>
+                        </div>
+                    </div>
+
+                    <div id="image-list" class="image-list">
+                        <p class="empty-list-text" data-i18n="no_images_loaded">No images loaded</p>
+                        <!-- Dynamic content -->
+                    </div>
+                </section>
+
+                <section class="panel-section">
+                    <h2 class="section-title">
+                        <svg class="icon-inline" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"/></svg>
+                        <span data-i18n="image_mode_title">Image Assignment Mode</span>
+                    </h2>
+                    <div class="form-group">
+                        <label class="radio-card">
+                            <input type="radio" name="image-mode" value="single" checked>
+                            <div class="radio-content">
+                                <span class="radio-title" data-i18n="single_image_wall">Single image on entire wall</span>
+                                <span class="radio-desc" data-i18n="single_image_desc">One image stretched/fitted across the hex grid</span>
+                            </div>
+                        </label>
+                        <label class="radio-card">
+                            <input type="radio" name="image-mode" value="multi">
+                            <div class="radio-content">
+                                <span class="radio-title" data-i18n="multi_image_wall">Multiple images (manual layout)</span>
+                                <span class="radio-desc" data-i18n="multi_image_desc">Drag individual images onto specific hexes</span>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <div class="form-group single-image-select-wrapper">
+                        <label for="select-main-image" data-i18n="active_wall_image">Active image for the wall</label>
+                        <select id="select-main-image" class="form-select">
+                            <option value="" data-i18n="select_image_placeholder">Select image...</option>
+                        </select>
+                        <div id="single-image-zoom-group" class="form-group mt-3 hidden">
+                            <label for="single-image-zoom"><span data-i18n="image_zoom">Image zoom:</span> <span id="val-single-image-zoom">100%</span></label>
+                            <input type="range" id="single-image-zoom" class="form-range" min="100" max="500" step="5" value="100">
+                        </div>
+                    </div>
+                </section>
+            </aside>
+
+            <!-- CENTER PANEL: Interactive Wall Canvas -->
+            <section class="canvas-container tab-content" id="tab-planner">
+                <!-- Toolbar above canvas -->
+                <div class="canvas-toolbar">
+                    <div class="toolbar-group">
+                        <button id="btn-zoom-in" class="btn btn-icon" data-i18n-title="zoom_in" title="Zoom in">
+                            <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                        </button>
+                        <button id="btn-zoom-out" class="btn btn-icon" data-i18n-title="zoom_out" title="Zoom out">
+                            <svg viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2z"/></svg>
+                        </button>
+                        <button id="btn-zoom-fit" class="btn btn-icon" data-i18n-title="zoom_fit" title="Fit to screen">
+                            <svg viewBox="0 0 24 24"><path d="M15 3h6v6h-2V5h-4V3zM9 3H3v6h2V5h4V3zm10 16v-4h2v6h-6v-2h4zm-14 0h4v2H3v-6h2v4z"/></svg>
+                        </button>
+                    </div>
+                    
+                    <div class="toolbar-divider"></div>
+                    
+                    <div class="toolbar-group">
+                        <button id="btn-select-all" class="btn btn-text btn-sm" data-i18n="activate_all">Activate all</button>
+                        <button id="btn-deselect-all" class="btn btn-text btn-sm" data-i18n="deactivate_all">Deactivate all</button>
+                    </div>
+
+                    <div class="toolbar-divider"></div>
+                    
+                    <div class="toolbar-group" id="tool-mode-group">
+                        <button id="btn-mode-grid" class="btn btn-sm active" data-i18n-title="mode_grid_title" title="Draw grid (Activate hexes)">
+                            <svg class="icon-inline" viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;"><path fill="currentColor" d="M4 4h4v4H4V4m6 0h4v4h-4V4m6 0h4v4h-4V4M4 10h4v4H4v-4m6 0h4v4h-4v-4m6 0h4v4h-4v-4M4 16h4v4H4v-4m6 0h4v4h-4v-4m6 0h4v4h-4v-4Z"/></svg>
+                            <span data-i18n="mode_grid">Grid</span>
+                        </button>
+                        <button id="btn-mode-image" class="btn btn-sm" data-i18n-title="mode_image_title" title="Move and crop images in hexes">
+                            <svg class="icon-inline" viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;"><path fill="currentColor" d="M18 19H6c-.55 0-1-.45-1-1V6c0-.55.45-1 1-1h12c.55 0 1 .45 1 1v12c0 .55-.45 1-1 1M6 3c-1.66 0-3 1.34-3 3v12c0 1.66 1.34 3 3 3h12c1.66 0 3-1.34 3-3V6c0-1.66-1.34-3-3-3H6m4.5 10.5 2.03 2.71L15.5 13l3 4H5.5l3.5-4.5 1.5 2Z"/></svg>
+                            <span data-i18n="mode_image">Move photo</span>
+                        </button>
+                    </div>
+
+                    <div class="toolbar-spacer"></div>
+
+                    <div class="canvas-status">
+                        <span id="canvas-status-text" data-i18n="status_grid_mode">Use LMB to activate/deactivate hexes from the layout</span>
+                    </div>
+                </div>
+
+                <div class="canvas-wrapper" id="canvas-wrapper">
+                    <!-- The Interactive Canvas -->
+                    <canvas id="planner-canvas"></canvas>
+                </div>
+            </section>
+
+            <!-- PREVIEW TAB -->
+            <section class="canvas-container tab-content hidden" id="tab-preview">
+                <div class="canvas-toolbar">
+                    <div class="toolbar-group">
+                        <label class="toggle-control">
+                            <input type="checkbox" id="chk-preview-gaps" checked>
+                            <span class="toggle-slider"></span>
+                            <span data-i18n="show_gaps">Show gaps</span>
+                        </label>
+                        <label class="toggle-control">
+                            <input type="checkbox" id="chk-preview-labels" checked>
+                            <span class="toggle-slider"></span>
+                            <span data-i18n="show_labels">Show labels</span>
+                        </label>
+                        <label class="toggle-control">
+                            <input type="checkbox" id="chk-preview-frames">
+                            <span class="toggle-slider"></span>
+                            <span data-i18n="show_frames">Show frames</span>
+                        </label>
+                        <label class="toggle-control">
+                            <input type="checkbox" id="chk-preview-ruler" checked>
+                            <span class="toggle-slider"></span>
+                            <span data-i18n="show_ruler">Show ruler</span>
+                        </label>
+                        <label class="toggle-control ml-3">
+                            <input type="checkbox" id="chk-preview-ams">
+                            <span class="toggle-slider"></span>
+                            <span data-i18n="ams_preview">Color Quantization (AMS Preview)</span>
+                        </label>
+                        <select id="preview-ams-colors" class="form-select form-select-sm hidden" style="width: 90px; padding: 4px 8px; margin-left: 8px;">
+                            <option value="4" selected data-i18n="colors_4">4 colors</option>
+                            <option value="8" data-i18n="colors_8">8 colors</option>
+                            <option value="16" data-i18n="colors_16">16 colors</option>
+                        </select>
+                    </div>
+                    <div class="toolbar-spacer"></div>
+                    <div class="toolbar-group">
+                        <label for="preview-bg-select" data-i18n="preview_bg">Preview background:</label>
+                        <select id="preview-bg-select" class="form-select form-select-sm">
+                            <option value="transparent" data-i18n="bg_transparent">Transparent (checkerboard)</option>
+                            <option value="dark" selected data-i18n="bg_dark">Dark background (anthracite)</option>
+                            <option value="light" data-i18n="bg_light">Light background (room)</option>
+                            <option value="wall" data-i18n="bg_wall">Wall (concrete texture)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="canvas-wrapper preview-wrapper" id="preview-wrapper">
+                    <canvas id="preview-canvas"></canvas>
+                </div>
+            </section>
+
+            <!-- INSTRUCTIONS TAB -->
+            <section class="instructions-container tab-content hidden" id="tab-instructions">
+                <div class="instructions-actions">
+                    <button id="btn-print-instructions" class="btn btn-primary">
+                        <svg viewBox="0 0 24 24" class="icon-inline"><path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/></svg>
+                        <span data-i18n="print_instructions">Print instructions (PDF)</span>
+                    </button>
+                </div>
+                
+                <div id="instructions-print-area" class="instructions-print-area">
+                    <!-- Dynamically generated print guide -->
+                    <div class="instruction-cover">
+                        <h2 data-i18n="instructions_header">Hexagonal Wall Assembly Instructions</h2>
+                        <p class="instruction-date"></p>
+                        
+                        <div class="instruction-stats-grid">
+                            <div class="stat-card">
+                                <span class="stat-val" id="inst-stat-total">0</span>
+                                <span class="stat-lbl" data-i18n="stat_total">Number of hexes</span>
+                            </div>
+                            <div class="stat-card">
+                                <span class="stat-val" id="inst-stat-dimensions">0 x 0 mm</span>
+                                <span class="stat-lbl" data-i18n="stat_dimensions">Total dimensions</span>
+                            </div>
+                            <div class="stat-card">
+                                <span class="stat-val" id="inst-stat-hexsize">0 mm</span>
+                                <span class="stat-lbl" data-i18n="stat_hexsize">Hex size (S)</span>
+                            </div>
+                            <div class="stat-card">
+                                <span class="stat-val" id="inst-stat-gap">0 mm</span>
+                                <span class="stat-lbl" data-i18n="stat_gap">Gap size</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="instruction-section">
+                        <h3 data-i18n="layout_preview_title">1. Wall Layout Preview</h3>
+                        <div class="layout-preview-box">
+                            <canvas id="instruction-layout-canvas"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="instruction-section">
+                        <h3 data-i18n="hex_list_title">2. Detailed Hex List</h3>
+                        <table class="instructions-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 8%;" data-i18n="th_code">Code</th>
+                                    <th style="width: 12%;" data-i18n="th_position">Position</th>
+                                    <th style="width: 20%;" data-i18n="th_graphic">Hex graphic</th>
+                                    <th style="width: 20%;" data-i18n="th_frame">Frame shape</th>
+                                    <th style="width: 40%;" data-i18n="th_desc">Description & tech specs</th>
+                                </tr>
+                            </thead>
+                            <tbody id="instructions-table-body">
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RIGHT PANEL: Parameters & Export -->
+            <aside class="panel right-panel">
+                <section class="panel-section">
+                    <h2 class="section-title">
+                        <svg class="icon-inline" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                        <span data-i18n="grid_config">Grid Configuration</span>
+                    </h2>
+                    
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="grid-cols" data-i18n="columns">Columns</label>
+                            <input type="number" id="grid-cols" class="form-input" min="1" max="25" value="4">
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="grid-rows" data-i18n="rows">Rows</label>
+                            <input type="number" id="grid-rows" class="form-input" min="1" max="25" value="3">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="hex-size"><span data-i18n="hex_size_s">Hex size (S)</span> <span class="label-hint" data-i18n="circumradius_hint">circumradius (mm)</span></label>
+                        <input type="number" id="hex-size" class="form-input" min="10" max="500" value="100">
+                        <div class="size-indicators">
+                            <span><span data-i18n="flat_width">Width (flat-to-flat):</span> <strong id="val-hex-flat-width">173</strong> mm</span><br>
+                            <span><span data-i18n="total_height">Total height:</span> <strong id="val-hex-total-height">200</strong> mm</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="hex-orientation" data-i18n="orientation">Orientation</label>
+                        <select id="hex-orientation" class="form-select">
+                            <option value="flat-top" selected data-i18n="flat_top">Flat-Top (flat side up)</option>
+                            <option value="pointy-top" data-i18n="pointy_top">Pointy-Top (pointy side up)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="hex-stagger" data-i18n="stagger_label">First row/column alignment</label>
+                        <select id="hex-stagger" class="form-select">
+                            <option id="opt-stagger-left" value="left" selected data-i18n="stagger_left_flat">First column protruding to the top (Standard)</option>
+                            <option id="opt-stagger-right" value="right" data-i18n="stagger_right_flat">First column protruding to the bottom</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="hex-gap" data-i18n="dilatation_gap">Dilatation gap (mm)</label>
+                        <input type="number" id="hex-gap" class="form-input" min="0" max="50" step="0.5" value="2">
+                        <p class="field-info" data-i18n="gap_info">Dilatation gap between adjacent hex tiles.</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="export-dpi" data-i18n="export_dpi">DPI for image export</label>
+                        <select id="export-dpi" class="form-select">
+                            <option value="original" data-i18n="dpi_original">Original (no scaling)</option>
+                            <option value="72" data-i18n="dpi_72">72 DPI (Low resolution)</option>
+                            <option value="150" data-i18n="dpi_150">150 DPI (Medium - optimal)</option>
+                            <option value="300" selected data-i18n="dpi_300">300 DPI (High - 3D print)</option>
+                        </select>
+                        <p class="field-info" data-i18n="dpi_info">Directly affects the pixel size of the cut images.</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="export-format" data-i18n="export_format">Image format</label>
+                        <select id="export-format" class="form-select">
+                            <option value="png" selected data-i18n="export_format">PNG (Lossless, transparency)</option>
+                            <option value="jpg" data-i18n="export_format">JPEG (Compressed, white background)</option>
+                        </select>
+                    </div>
+
+                    <div id="jpg-quality-group" class="form-group hidden">
+                        <label for="export-quality"><span data-i18n="jpeg_quality">JPEG Quality:</span> <span id="val-export-quality">90%</span></label>
+                        <input type="range" id="export-quality" class="form-range" min="10" max="100" step="5" value="90">
+                    </div>
+
+                    <div class="form-group border-top-divider pt-3" style="border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px;">
+                        <label class="toggle-control">
+                            <input type="checkbox" id="bed-verify" checked>
+                            <span class="toggle-slider"></span>
+                            <span data-i18n="bed_verify">Verify print bed dimensions</span>
+                        </label>
+                    </div>
+
+                    <div class="form-row id-bed-settings-container">
+                        <div class="form-group col-6">
+                            <label for="bed-size-x" data-i18n="bed_x">Bed X (mm)</label>
+                            <input type="number" id="bed-size-x" class="form-input" min="50" max="1000" value="256">
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="bed-size-y" data-i18n="bed_y">Bed Y (mm)</label>
+                            <input type="number" id="bed-size-y" class="form-input" min="50" max="1000" value="256">
+                        </div>
+                    </div>
+                    <div id="bed-warning-message" class="bed-warning hidden" style="color: var(--danger); font-size: 0.75rem; font-weight: 600; margin-top: 8px; display: flex; align-items: center; gap: 6px;" data-i18n="bed_warning">
+                        Elements do not fit on the print bed!
+                    </div>
+                </section>
+                </section>
+
+                <section class="panel-section">
+                    <h2 class="section-title">
+                        <svg class="icon-inline" viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2z"/></svg>
+                        <span data-i18n="frame_config">Frame / Sleeve Configuration</span>
+                    </h2>
+
+                    <div class="form-group">
+                        <label class="toggle-control">
+                            <input type="checkbox" id="frame-enable" checked>
+                            <span class="toggle-slider"></span>
+                            <span data-i18n="frame_enable">Enable frame generation</span>
+                        </label>
+                    </div>
+
+                    <div class="frame-settings-sub">
+                        <div class="form-group">
+                            <label for="frame-type" data-i18n="frame_type">Frame type</label>
+                            <select id="frame-type" class="form-select">
+                                <option value="outline" selected data-i18n="frame_outline">Outline (Hollow frame)</option>
+                                <option value="backing" data-i18n="frame_backing">Backing plate</option>
+                                <option value="sleeve" data-i18n="frame_sleeve">Sleeve (with lip)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group col-6">
+                                <label for="frame-width" data-i18n="frame_width">Frame width (mm)</label>
+                                <input type="number" id="frame-width" class="form-input" min="1" max="50" value="2">
+                                <label class="toggle-control mt-2" style="font-size: 0.7rem; color: var(--text-muted);">
+                                    <input type="checkbox" id="chk-sync-frame-width" checked>
+                                    <span class="toggle-slider"></span>
+                                    <span data-i18n="sync_width">Autosync with gap</span>
+                                </label>
+                                <p class="field-info" data-i18n="frame_width_info">When width matches the gap, frames touch without overlapping.</p>
+                            </div>
+                            <div class="form-group col-6">
+                                <label for="frame-clearance" data-i18n="frame_clearance">Clearance / Tolerance (mm)</label>
+                                <input type="number" id="frame-clearance" class="form-input" min="0" max="5" step="0.1" value="0.2">
+                                <p class="field-info" data-i18n="frame_clearance_info">Clearance between the hex print and the frame interior.</p>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="frame-color" data-i18n="frame_color">Visualization color</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="frame-color" class="form-color-input" value="#1a1a1a">
+                                <span id="frame-color-hex" class="color-hex-text">#1A1A1A</span>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+                <section class="panel-section export-section">
+                    <h2 class="section-title">
+                        <svg class="icon-inline" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                        <span data-i18n="export_section">Export</span>
+                    </h2>
+                    
+                    <button id="btn-export-hexes" class="btn btn-primary btn-block">
+                        <svg viewBox="0 0 24 24" class="icon-inline"><path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.01 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.49-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-3h4v3h3.5L12 17.5zM5.12 5l.81-1h12.06l.82 1H5.12z"/></svg>
+                        <span data-i18n="btn_export_hexes">Download Hexes (.ZIP)</span>
+                    </button>
+                    
+                    <div class="form-row mt-2" id="frame-export-row">
+                        <div class="form-group col-6" style="margin-bottom:0;">
+                            <button id="btn-export-frame-png" class="btn btn-secondary btn-block" style="padding: 10px 8px; font-size: 0.8rem;">
+                                <svg viewBox="0 0 24 24" class="icon-inline" style="width:14px;height:14px;margin-right:2px;"><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+                                <span data-i18n="btn_export_frames_png">Frames ZIP (PNG)</span>
+                            </button>
+                        </div>
+                        <div class="form-group col-6" style="margin-bottom:0;">
+                            <button id="btn-export-frame-svg" class="btn btn-secondary btn-block" style="padding: 10px 8px; font-size: 0.8rem;">
+                                <svg viewBox="0 0 24 24" class="icon-inline" style="width:14px;height:14px;margin-right:2px;"><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+                                <span data-i18n="btn_export_frames_svg">Frames ZIP (SVG)</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="export-progress-bar hidden" id="export-progress-wrapper">
+                        <div class="progress-track">
+                            <div class="progress-fill" id="export-progress-fill" style="width: 0%;"></div>
+                        </div>
+                        <span id="export-progress-text" data-i18n="preparing_files">Preparing files... 0%</span>
+                    </div>
+                </section>
+            </aside>
+        </main>
+    </div>
+    
+    <!-- Scripts modules -->
+    <script type="module" src="js/app.js?v=1.0.3"></script>
+</body>
+</html>
