@@ -1,5 +1,7 @@
 # HexSplitter — Hexagonal Wall Planner & Slicer
 
+https://ventus34.github.io/hex_splitter/
+
 [English version below](#english-version)
 
 **HexSplitter** to w pełni kliencka aplikacja webowa służąca do planowania, wizualizacji i cięcia obrazów na siatki sześciokątne (heksagony). Idealna do tworzenia dekoracji ściennych, kolaży zdjęć lub ramek do druku 3D.
