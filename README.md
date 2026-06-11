@@ -29,12 +29,13 @@
 ### Druk 3D
 - Weryfikacja wymiarów stołu drukarki (np. 256×256 mm) z ostrzeżeniem o przekroczeniu
 - Generowanie ramek: **Outline** (obrys), **Backing plate** (płytka tylna), **Sleeve** (wsuwka z wypustką)
+- Generowanie zawieszek montażowych (**Hanger**) z regulacją tolerancji i wysokości ramy wsuwki
 - Regulowana tolerancja (luz) i szerokość ramki, z autosynchronizacją ze szczeliną dylatacyjną
 
 ### Eksport
 - Masowe pobieranie pociętych heksagonów w archiwum `.zip` (PNG/JPG)
 - Konfigurowalne DPI (72/150/300) i jakość JPEG
-- Eksport ramek jako PNG lub SVG w oddzielnych archiwach `.zip`
+- Eksport ramek i zawieszek jako **PNG, SVG lub 3D STL** w oddzielnych archiwach `.zip`
 - **Instrukcja montażu** — generowanie gotowego do druku przewodnika PDF z mapowaniem pozycji, wymiarami i kodami heksagonów
 
 ### Inne
@@ -76,8 +77,9 @@ hex_splitter/
 │   ├── wall-planner.js     # Renderowanie canvas planera z obrazem i heksagonami
 │   ├── preview-renderer.js # Podgląd ścienny (Wall Preview) z tłami i AMS
 │   ├── image-processor.js  # Przetwarzanie i kadrowanie obrazów
-│   ├── frame-generator.js  # Generowanie ramek (outline, backing, sleeve)
-│   ├── export-manager.js   # Eksport ZIP (heksagony, ramki PNG/SVG, PDF)
+│   ├── frame-generator.js  # Generowanie ramek i modeli 3D STL (outline, backing, sleeve)
+│   ├── hanger-generator.js # Generowanie modeli 3D STL dla zawieszek montażowych
+│   ├── export-manager.js   # Eksport ZIP (heksagony, ramki/zawieszki PNG/SVG/STL, PDF)
 │   └── i18n.js             # Tłumaczenia PL/EN i system lokalizacji
 ├── screenshots/
 │   └── 1.png               # Screenshot aplikacji
@@ -129,12 +131,13 @@ hex_splitter/
 #### 3D Print Support
 - Print bed size verification (e.g. 256×256 mm) with overflow warnings
 - Frame generation: **Outline** (hollow frame), **Backing plate**, **Sleeve** (with lip)
+- Mounting hanger (**Hanger**) generation with customizable clearance and sleeve frame height
 - Adjustable clearance/tolerance and frame width, with auto-sync to dilatation gap
 
 #### Export
 - Batch download of sliced hexagons as `.zip` archive (PNG/JPG)
 - Configurable DPI (72/150/300) and JPEG quality
-- Frame export as PNG or SVG in separate `.zip` archives
+- Frame and hanger export as **PNG, SVG, or 3D STL** in separate `.zip` archives
 - **Assembly Guide** — generates a print-ready PDF with placement codes, dimensions, and layout mapping
 
 #### Other
@@ -176,8 +179,9 @@ hex_splitter/
 │   ├── wall-planner.js     # Planner canvas rendering with image & hexagons
 │   ├── preview-renderer.js # Wall Preview with backgrounds and AMS
 │   ├── image-processor.js  # Image processing and cropping
-│   ├── frame-generator.js  # Frame generation (outline, backing, sleeve)
-│   ├── export-manager.js   # ZIP export (hexagons, frames PNG/SVG, PDF)
+│   ├── frame-generator.js  # Frame & 3D STL model generation (outline, backing, sleeve)
+│   ├── hanger-generator.js # Mounting hanger 3D STL model generation
+│   ├── export-manager.js   # ZIP export (hexagons, frames/hangers PNG/SVG/STL, PDF)
 │   └── i18n.js             # PL/EN translations and localization system
 ├── screenshots/
 │   └── 1.png               # Application screenshot
