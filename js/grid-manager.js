@@ -18,7 +18,8 @@ class GridManager {
             frameEnable: true, // czy włączone są ramki
             frameWidth: 2, // szerokość ramki w mm
             frameClearance: 0.2, // luz w mm
-            singleImageScale: 1.0 // skala obrazu w tle (1.0 = 100%)
+            singleImageScale: 1.0, // skala obrazu w tle (1.0 = 100%)
+            halfHexes: false // czy generować pół-heksy na obrzeżach
         };
 
         // Mapa przechowująca stan komórek siatki.
@@ -189,22 +190,8 @@ class GridManager {
 
         // Przejdź po wszystkich aktywnych heksach
         activeCells.forEach(cell => {
-            const pos = HexMath.axialToPixel(
-                cell.q, 
-                cell.r, 
-                this.config.hexSize, 
-                this.config.orientation, 
-                this.config.gap,
-                this.config.stagger || 'left'
-            );
-
-            // Pobierz wierzchołki w skali mm (bez DPI)
-            const vertices = HexMath.getHexVertices(
-                pos.x, 
-                pos.y, 
-                this.config.hexSize, 
-                this.config.orientation
-            );
+            // Pobierz wierzchołki w skali mm (bez DPI) z uwzględnieniem ewentualnego obcinania
+            const vertices = HexMath.getCellVertices(cell, this.config);
 
             vertices.forEach(v => {
                 if (v.x < minX) minX = v.x;

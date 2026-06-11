@@ -3,6 +3,7 @@ import ImageProcessor from './image-processor.js?v=1.0.3';
 import WallPlanner from './wall-planner.js?v=1.0.3';
 import PreviewRenderer from './preview-renderer.js?v=1.0.3';
 import ExportManager from './export-manager.js?v=1.0.3';
+import HangerGenerator from './hanger-generator.js?v=1.0.3';
 import { i18n } from './i18n.js?v=1.0.3';
 
 // Silnik magazynu IndexedDB do trwałego zapisywania oryginalnych plików graficznych
@@ -114,6 +115,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const preview = new PreviewRenderer('preview-canvas', gridManager, imageProcessor);
     const exporter = new ExportManager(gridManager, imageProcessor);
 
+    // Expose for testing
+    window.gridManager = gridManager;
+    window.imageProcessor = imageProcessor;
+    window.planner = planner;
+    window.preview = preview;
+
     // Dynamiczne wskaźniki wymiarów pojedynczego heksa
     const valHexFlatWidth = document.getElementById('val-hex-flat-width');
     const valHexTotalHeight = document.getElementById('val-hex-total-height');
@@ -140,6 +147,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const inputQuality = document.getElementById('export-quality');
     const valQuality = document.getElementById('val-export-quality');
     const jpgQualityGroup = document.getElementById('jpg-quality-group');
+    const chkHalfHexes = document.getElementById('grid-half-hexes');
 
     // Elementy DOM weryfikacji stołu
     const chkBedVerify = document.getElementById('bed-verify');
@@ -152,6 +160,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const selectFrameType = document.getElementById('frame-type');
     const inputFrameWidth = document.getElementById('frame-width');
     const inputFrameClearance = document.getElementById('frame-clearance');
+    const inputFrameHeight = document.getElementById('frame-height');
+    const inputFrameSleeveBase = document.getElementById('frame-sleeve-base');
     const inputFrameColor = document.getElementById('frame-color');
     const txtFrameColorHex = document.getElementById('frame-color-hex');
     const frameSettingsSub = document.querySelector('.frame-settings-sub');
@@ -181,6 +191,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Elementy miarki
     const chkPreviewRuler = document.getElementById('chk-preview-ruler');
 
+    // Wizualizacja uchwytów
+    const chkPreviewHangers = document.getElementById('chk-preview-hangers');
+
+    // Elementy DOM uchwytu 3D
+    const inputHangerClearance = document.getElementById('hanger-clearance');
+    const inputHangerBaseThickness = document.getElementById('hanger-base-thickness');
+    const inputHangerRidgeHeight = document.getElementById('hanger-ridge-height');
+    const inputHangerArmWidth = document.getElementById('hanger-arm-width');
+    const inputHangerArmLength = document.getElementById('hanger-arm-length');
+    const btnExportHanger = document.getElementById('btn-export-hanger');
+
     // Zabezpieczenie
     if (!inputCols || !inputRows || !inputHexSize || !selectOrientation || !selectStagger || !inputGap || !selectDpi) {
         console.error("Nie znaleziono wymaganych elementów konfiguracji w DOM.");
@@ -205,9 +226,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             frameEnable: chkFrameEnable.checked,
             frameWidth: parseFloat(inputFrameWidth.value) || 2,
             frameClearance: parseFloat(inputFrameClearance.value) || 0.2,
+            frameHeight: parseFloat(inputFrameHeight?.value) || 10,
+            frameSleeveBase: parseFloat(inputFrameSleeveBase?.value) || 1.2,
             singleImageOffsetX: gridManager.config.singleImageOffsetX || 0,
             singleImageOffsetY: gridManager.config.singleImageOffsetY || 0,
-            singleImageScale: parseFloat(inputSingleImageZoom?.value || 100) / 100 || 1.0
+            singleImageScale: parseFloat(inputSingleImageZoom?.value || 100) / 100 || 1.0,
+            halfHexes: chkHalfHexes?.checked || false
         };
     }
 
@@ -221,6 +245,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
     }
+
+
 
     function updateHexDimensionLabels() {
         const size = parseFloat(inputHexSize.value) || 100;
@@ -250,7 +276,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 exportQuality: parseInt(inputQuality.value) || 90,
                 singleImageOffsetX: gridManager.config.singleImageOffsetX || 0,
                 singleImageOffsetY: gridManager.config.singleImageOffsetY || 0,
-                singleImageScale: gridManager.config.singleImageScale || 1.0
+                singleImageScale: gridManager.config.singleImageScale || 1.0,
+                halfHexes: chkHalfHexes?.checked || false
             },
             bed: {
                 verify: chkBedVerify.checked,
@@ -262,14 +289,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 type: selectFrameType.value,
                 width: parseFloat(inputFrameWidth.value) || 2,
                 clearance: parseFloat(inputFrameClearance.value) || 0.2,
+                height: parseFloat(inputFrameHeight?.value) || 10,
+                sleeveBase: parseFloat(inputFrameSleeveBase?.value) || 1.2,
                 color: inputFrameColor.value,
                 syncWidth: chkSyncFrameWidth ? chkSyncFrameWidth.checked : true
+            },
+            hanger: {
+                clearance: parseFloat(inputHangerClearance.value) || 0.3,
+                baseThickness: parseFloat(inputHangerBaseThickness.value) || 1.2,
+                ridgeHeight: parseFloat(inputHangerRidgeHeight.value) || 2.0,
+                armWidth: parseFloat(inputHangerArmWidth.value) || 12,
+                armLength: parseFloat(inputHangerArmLength.value) || 30
             },
             previewOptions: {
                 showGaps: chkPreviewGaps.checked,
                 showLabels: chkPreviewLabels.checked,
                 showFrames: chkPreviewFrames.checked,
                 showRuler: chkPreviewRuler ? chkPreviewRuler.checked : true,
+                showHangers: chkPreviewHangers ? chkPreviewHangers.checked : false,
                 background: selectPreviewBg.value
             },
             imageMode: getActiveImageMode(),
@@ -331,8 +368,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveProjectState();
     }
 
-    [inputCols, inputRows, inputHexSize, selectOrientation, selectStagger, inputGap, selectDpi].forEach(input => {
-        input.addEventListener('input', handleGridConfigChange);
+    [inputCols, inputRows, inputHexSize, selectOrientation, selectStagger, inputGap, selectDpi, chkHalfHexes].forEach(input => {
+        if (input) {
+            input.addEventListener('input', handleGridConfigChange);
+            if (input.type === 'checkbox') {
+                input.addEventListener('change', handleGridConfigChange);
+            }
+        }
+    });
+
+    [inputHangerClearance, inputHangerBaseThickness, inputHangerRidgeHeight, inputHangerArmWidth, inputHangerArmLength].forEach(input => {
+        if (input) {
+            input.addEventListener('input', () => {
+                preview.scheduleRender();
+                saveProjectState();
+            });
+        }
     });
 
     if (selectFormat) {
@@ -391,6 +442,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else {
             frameSettingsSub.classList.add('hidden');
         }
+        
+        // Pokazuj/ukrywaj grubość spodu obwoluty w zależności od wybranego typu
+        const sleeveBaseContainer = document.getElementById('frame-sleeve-base-container');
+        if (sleeveBaseContainer) {
+            if (chkFrameEnable.checked && selectFrameType.value === 'sleeve') {
+                sleeveBaseContainer.classList.remove('hidden');
+            } else {
+                sleeveBaseContainer.classList.add('hidden');
+            }
+        }
+
         txtFrameColorHex.textContent = inputFrameColor.value.toUpperCase();
         
         // Zaktualizuj i przelicz weryfikację stołu pod kątem ramek
@@ -407,7 +469,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     chkFrameEnable.addEventListener('change', handleFrameConfigChange);
-    [selectFrameType, inputFrameWidth, inputFrameClearance, inputFrameColor].forEach(input => {
+    [selectFrameType, inputFrameWidth, inputFrameClearance, inputFrameHeight, inputFrameSleeveBase, inputFrameColor].forEach(input => {
         if (input) input.addEventListener('input', handleFrameConfigChange);
     });
 
@@ -890,6 +952,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         preview.options.showLabels = chkPreviewLabels.checked;
         preview.options.showFrames = chkPreviewFrames.checked;
         preview.options.showRuler = chkPreviewRuler ? chkPreviewRuler.checked : true;
+        preview.options.showHangers = chkPreviewHangers ? chkPreviewHangers.checked : false;
         preview.options.background = selectPreviewBg.value;
 
         // Synchronizuj przełącznik "Pokazuj ramki" z lewym panelem "Włącz generowanie ramek"
@@ -909,7 +972,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveProjectState();
     }
 
-    [chkPreviewGaps, chkPreviewLabels, chkPreviewFrames, chkPreviewRuler, selectPreviewBg].forEach(el => {
+    [chkPreviewGaps, chkPreviewLabels, chkPreviewFrames, chkPreviewRuler, chkPreviewHangers, selectPreviewBg].forEach(el => {
         if (el) el.addEventListener('change', updatePreviewOptions);
     });
 
@@ -978,6 +1041,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             selectStagger.value = 'left';
             inputGap.value = 2;
             selectDpi.value = 300;
+            if (chkHalfHexes) chkHalfHexes.checked = false;
             if (selectFormat) selectFormat.value = 'png';
             if (inputQuality) inputQuality.value = 90;
             if (valQuality) valQuality.textContent = '90%';
@@ -989,6 +1053,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             selectFrameType.value = 'outline';
             inputFrameWidth.value = 2;
             inputFrameClearance.value = 0.2;
+            if (inputFrameHeight) inputFrameHeight.value = 10;
+            if (inputFrameSleeveBase) inputFrameSleeveBase.value = 1.2;
             inputFrameColor.value = '#1a1a1a';
             if (chkSyncFrameWidth) chkSyncFrameWidth.checked = true;
             updateFrameWidthSync();
@@ -1015,14 +1081,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         await exporter.exportHexesZip();
     });
 
-    // Eksport ramki jako PNG
-    document.getElementById('btn-export-frame-png').addEventListener('click', async () => {
-        await exporter.exportFramePNG();
+    // Eksport ramki jako STL
+    document.getElementById('btn-export-frame-stl')?.addEventListener('click', async () => {
+        await exporter.exportFrameSTL();
     });
 
-    // Eksport ramki jako SVG
-    document.getElementById('btn-export-frame-svg').addEventListener('click', async () => {
-        await exporter.exportFrameSVG();
+    // Eksport uchwytu Y (STL)
+    document.getElementById('btn-export-hanger').addEventListener('click', () => {
+        const gridConfig = gridManager.config;
+        const hangerConfig = {
+            clearance: parseFloat(inputHangerClearance.value) || 0.3,
+            baseThickness: parseFloat(inputHangerBaseThickness.value) || 1.2,
+            ridgeHeight: parseFloat(inputHangerRidgeHeight.value) || 2.0,
+            armWidth: parseFloat(inputHangerArmWidth.value) || 12,
+            armLength: parseFloat(inputHangerArmLength.value) || 30
+        };
+        const stlString = HangerGenerator.generateSTL(gridConfig, hangerConfig);
+        const blob = new Blob([stlString], { type: 'application/sla' });
+        saveAs(blob, `hexsplitter_uchwyt_y.stl`);
     });
 
     // Drukowanie
@@ -1092,6 +1168,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (layout.grid.stagger !== undefined) selectStagger.value = layout.grid.stagger;
                     if (layout.grid.gap !== undefined) inputGap.value = layout.grid.gap;
                     if (layout.grid.dpi !== undefined) selectDpi.value = layout.grid.dpi;
+                    if (layout.grid.halfHexes !== undefined && chkHalfHexes) chkHalfHexes.checked = layout.grid.halfHexes;
                     if (layout.grid.exportFormat !== undefined && selectFormat) {
                         selectFormat.value = layout.grid.exportFormat;
                         if (layout.grid.exportFormat === 'jpg') {
@@ -1127,10 +1204,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (layout.frame.type !== undefined) selectFrameType.value = layout.frame.type;
                     if (layout.frame.width !== undefined) inputFrameWidth.value = layout.frame.width;
                     if (layout.frame.clearance !== undefined) inputFrameClearance.value = layout.frame.clearance;
+                    if (layout.frame.height !== undefined && inputFrameHeight) inputFrameHeight.value = layout.frame.height;
+                    if (layout.frame.sleeveBase !== undefined && inputFrameSleeveBase) inputFrameSleeveBase.value = layout.frame.sleeveBase;
                     if (layout.frame.color !== undefined) inputFrameColor.value = layout.frame.color;
                     if (layout.frame.syncWidth !== undefined && chkSyncFrameWidth) {
                         chkSyncFrameWidth.checked = layout.frame.syncWidth;
                     }
+                }
+
+                if (layout.hanger) {
+                    if (layout.hanger.clearance !== undefined) inputHangerClearance.value = layout.hanger.clearance;
+                    if (layout.hanger.baseThickness !== undefined) inputHangerBaseThickness.value = layout.hanger.baseThickness;
+                    if (layout.hanger.ridgeHeight !== undefined) inputHangerRidgeHeight.value = layout.hanger.ridgeHeight;
+                    if (layout.hanger.armWidth !== undefined) inputHangerArmWidth.value = layout.hanger.armWidth;
+                    if (layout.hanger.armLength !== undefined) inputHangerArmLength.value = layout.hanger.armLength;
                 }
 
                 if (layout.previewOptions) {
@@ -1138,12 +1225,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (layout.previewOptions.showLabels !== undefined) chkPreviewLabels.checked = layout.previewOptions.showLabels;
                     if (layout.previewOptions.showFrames !== undefined) chkPreviewFrames.checked = layout.previewOptions.showFrames;
                     if (layout.previewOptions.showRuler !== undefined && chkPreviewRuler) chkPreviewRuler.checked = layout.previewOptions.showRuler;
+                    if (layout.previewOptions.showHangers !== undefined && chkPreviewHangers) chkPreviewHangers.checked = layout.previewOptions.showHangers;
                     if (layout.previewOptions.background !== undefined) selectPreviewBg.value = layout.previewOptions.background;
                     
                     preview.options.showGaps = chkPreviewGaps.checked;
                     preview.options.showLabels = chkPreviewLabels.checked;
                     preview.options.showFrames = chkPreviewFrames.checked;
                     preview.options.showRuler = chkPreviewRuler ? chkPreviewRuler.checked : true;
+                    preview.options.showHangers = chkPreviewHangers ? chkPreviewHangers.checked : false;
                     preview.options.background = selectPreviewBg.value;
                 }
 

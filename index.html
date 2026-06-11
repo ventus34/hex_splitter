@@ -182,6 +182,11 @@
                             <span class="toggle-slider"></span>
                             <span data-i18n="show_ruler">Show ruler</span>
                         </label>
+                        <label class="toggle-control">
+                            <input type="checkbox" id="chk-preview-hangers">
+                            <span class="toggle-slider"></span>
+                            <span data-i18n="show_hangers">Show hangers (STL)</span>
+                        </label>
                         <label class="toggle-control ml-3">
                             <input type="checkbox" id="chk-preview-ams">
                             <span class="toggle-slider"></span>
@@ -323,6 +328,14 @@
                     </div>
 
                     <div class="form-group">
+                        <label class="toggle-control">
+                            <input type="checkbox" id="grid-half-hexes">
+                            <span class="toggle-slider"></span>
+                            <span data-i18n="half_hexes">Generate half-hexes on borders</span>
+                        </label>
+                    </div>
+
+                    <div class="form-group">
                         <label for="export-dpi" data-i18n="export_dpi">DPI for image export</label>
                         <select id="export-dpi" class="form-select">
                             <option value="original" data-i18n="dpi_original">Original (no scaling)</option>
@@ -336,8 +349,8 @@
                     <div class="form-group">
                         <label for="export-format" data-i18n="export_format">Image format</label>
                         <select id="export-format" class="form-select">
-                            <option value="png" selected data-i18n="export_format">PNG (Lossless, transparency)</option>
-                            <option value="jpg" data-i18n="export_format">JPEG (Compressed, white background)</option>
+                            <option value="png" selected data-i18n="export_format_png">PNG (Lossless, transparency)</option>
+                            <option value="jpg" data-i18n="export_format_jpg">JPEG (Compressed, white background)</option>
                         </select>
                     </div>
 
@@ -380,7 +393,7 @@
                         <label class="toggle-control">
                             <input type="checkbox" id="frame-enable" checked>
                             <span class="toggle-slider"></span>
-                            <span data-i18n="frame_enable">Enable frame generation</span>
+                            <span data-i18n="frame_enable">Enable frame generation (Beta)</span>
                         </label>
                     </div>
 
@@ -412,6 +425,19 @@
                             </div>
                         </div>
 
+                        <div class="form-row">
+                            <div class="form-group col-6">
+                                <label for="frame-height" data-i18n="frame_height">Frame height/thickness (mm)</label>
+                                <input type="number" id="frame-height" class="form-input" min="1" max="100" step="0.5" value="10">
+                                <p class="field-info" data-i18n="frame_height_info">Height/thickness of the 3D-printable frame.</p>
+                            </div>
+                            <div class="form-group col-6" id="frame-sleeve-base-container">
+                                <label for="frame-sleeve-base" data-i18n="frame_sleeve_base">Sleeve base thickness (mm)</label>
+                                <input type="number" id="frame-sleeve-base" class="form-input" min="0.4" max="20" step="0.1" value="1.2">
+                                <p class="field-info" data-i18n="frame_sleeve_base_info">Thickness of the bottom plate for Sleeve type frames.</p>
+                            </div>
+                        </div>
+
                         <div class="form-group">
                             <label for="frame-color" data-i18n="frame_color">Visualization color</label>
                             <div class="color-picker-wrapper">
@@ -420,7 +446,48 @@
                             </div>
                         </div>
 
+                </section>
+
+                <section class="panel-section">
+                    <h2 class="section-title">
+                        <svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2v8m0 0l-5-4m5 4l5-4M12 10v12"/>
+                        </svg>
+                        <span data-i18n="hanger_config">3D Hanger Bracket (STL)</span>
+                    </h2>
+
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="hanger-clearance" data-i18n="hanger_clearance">Clearance (mm)</label>
+                            <input type="number" id="hanger-clearance" class="form-input" min="0" max="5" step="0.1" value="0.3">
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="hanger-base-thickness" data-i18n="hanger_base_thickness">Base thickness (mm)</label>
+                            <input type="number" id="hanger-base-thickness" class="form-input" min="0.5" max="10" step="0.1" value="1.2">
+                        </div>
                     </div>
+
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="hanger-ridge-height" data-i18n="hanger_ridge_height">Separator height (mm)</label>
+                            <input type="number" id="hanger-ridge-height" class="form-input" min="1" max="20" step="0.5" value="2.0">
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="hanger-arm-width" data-i18n="hanger_arm_width">Arm width (mm)</label>
+                            <input type="number" id="hanger-arm-width" class="form-input" min="5" max="100" value="12">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="hanger-arm-length" data-i18n="hanger_arm_length">Arm length (mm)</label>
+                        <input type="number" id="hanger-arm-length" class="form-input" min="10" max="200" value="30">
+                        <p class="field-info" data-i18n="hanger_arm_length_info">Safety limit: Arm length is capped at 95% of the hex size.</p>
+                    </div>
+
+                    <button id="btn-export-hanger" class="btn btn-primary btn-block">
+                        <svg viewBox="0 0 24 24" class="icon-inline" style="width:16px;height:16px;margin-right:4px;"><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+                        <span data-i18n="btn_export_hanger">Download Y-Hanger (STL)</span>
+                    </button>
                 </section>
 
                 <section class="panel-section export-section">
@@ -434,20 +501,10 @@
                         <span data-i18n="btn_export_hexes">Download Hexes (.ZIP)</span>
                     </button>
                     
-                    <div class="form-row mt-2" id="frame-export-row">
-                        <div class="form-group col-6" style="margin-bottom:0;">
-                            <button id="btn-export-frame-png" class="btn btn-secondary btn-block" style="padding: 10px 8px; font-size: 0.8rem;">
-                                <svg viewBox="0 0 24 24" class="icon-inline" style="width:14px;height:14px;margin-right:2px;"><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
-                                <span data-i18n="btn_export_frames_png">Frames ZIP (PNG)</span>
-                            </button>
-                        </div>
-                        <div class="form-group col-6" style="margin-bottom:0;">
-                            <button id="btn-export-frame-svg" class="btn btn-secondary btn-block" style="padding: 10px 8px; font-size: 0.8rem;">
-                                <svg viewBox="0 0 24 24" class="icon-inline" style="width:14px;height:14px;margin-right:2px;"><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
-                                <span data-i18n="btn_export_frames_svg">Frames ZIP (SVG)</span>
-                            </button>
-                        </div>
-                    </div>
+                    <button id="btn-export-frame-stl" class="btn btn-primary btn-block mt-2">
+                        <svg viewBox="0 0 24 24" class="icon-inline" style="width:16px;height:16px;margin-right:4px;"><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+                        <span data-i18n="btn_export_frames_stl">Download Frames (.ZIP STL)</span>
+                    </button>
 
                     <div class="export-progress-bar hidden" id="export-progress-wrapper">
                         <div class="progress-track">

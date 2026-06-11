@@ -265,6 +265,12 @@ class ImageProcessor {
      * @param {GridManager} gridManager - Konfiguracja siatki
      * @returns {HTMLCanvasElement|null}
      */
+    /**
+     * Tworzy przycięty canvas dla konkretnego heksu (z przezroczystością)
+     * @param {CellState} cell - Stan komórki heksagonalnej
+     * @param {GridManager} gridManager - Konfiguracja siatki
+     * @returns {HTMLCanvasElement|null}
+     */
     createHexagonCanvas(cell, gridManager) {
         if (!cell.enabled || !cell.imageId) return null;
 
@@ -274,31 +280,40 @@ class ImageProcessor {
         let dpi = gridManager.config.dpi;
         const hexSize = gridManager.config.hexSize;
         const orientation = gridManager.config.orientation;
-
-        // Wymiary heksa w mm
+        const gap = gridManager.config.gap;
+        const stagger = gridManager.config.stagger || 'left';
         const hexDim = HexMath.getHexDimensions(hexSize, orientation);
+        const crop = cell.cropRegion;
 
-        let canvasW, canvasH, targetHexSize;
-
-        if (dpi === 'original' && cell.cropRegion) {
-            // Użyj oryginalnego rozmiaru kadru
-            canvasW = Math.round(cell.cropRegion.w);
-            canvasH = Math.round(cell.cropRegion.h);
-            
-            if (orientation === 'flat-top') {
-                targetHexSize = canvasW / 2;
-            } else {
-                targetHexSize = canvasH / 2;
-            }
+        let pixelScale;
+        if (dpi === 'original' && crop) {
+            pixelScale = crop.w / hexDim.width;
         } else {
-            // Jeśli dpi to string "original" ale brak cropRegion, używamy fallbacku 300
             if (dpi === 'original') dpi = 300;
-            
-            // Przelicz wymiary wyjściowego canvasu na piksele wg DPI
-            canvasW = Math.round(HexMath.mmToPixels(hexDim.width, dpi));
-            canvasH = Math.round(HexMath.mmToPixels(hexDim.height, dpi));
-            targetHexSize = HexMath.mmToPixels(hexSize, dpi);
+            pixelScale = HexMath.mmToPixels(1, dpi);
         }
+
+        const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
+        
+        // Pobierz wierzchołki w skali mm (bez DPI) z uwzględnieniem obcinania
+        const verticesMm = HexMath.getCellVertices(cell, gridManager.config);
+        
+        if (verticesMm.length === 0) return null;
+
+        // Oblicz bounding box wierzchołków w mm
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        verticesMm.forEach(v => {
+            if (v.x < minX) minX = v.x;
+            if (v.x > maxX) maxX = v.x;
+            if (v.y < minY) minY = v.y;
+            if (v.y > maxY) maxY = v.y;
+        });
+
+        const wMm = maxX - minX;
+        const hMm = maxY - minY;
+
+        const canvasW = Math.round(wMm * pixelScale);
+        const canvasH = Math.round(hMm * pixelScale);
 
         const canvas = document.createElement('canvas');
         canvas.width = canvasW;
@@ -306,29 +321,36 @@ class ImageProcessor {
 
         const ctx = canvas.getContext('2d');
 
-        // Środek canvasu
-        const cx = canvasW / 2;
-        const cy = canvasH / 2;
-
-        // 1. Narysuj hexagonalną ścieżkę cięcia
+        // 1. Narysuj hexagonalną/wielokątną ścieżkę cięcia
         ctx.beginPath();
-        const vertices = HexMath.getHexVertices(cx, cy, targetHexSize, orientation);
-        vertices.forEach((v, idx) => {
-            if (idx === 0) ctx.moveTo(v.x, v.y);
-            else ctx.lineTo(v.x, v.y);
+        verticesMm.forEach((v, idx) => {
+            const pxX = (v.x - minX) * pixelScale;
+            const pxY = (v.y - minY) * pixelScale;
+            if (idx === 0) ctx.moveTo(pxX, pxY);
+            else ctx.lineTo(pxX, pxY);
         });
         ctx.closePath();
-
-        // 2. Zastosuj maskowanie
         ctx.clip();
 
-        // 3. Wytnij odpowiedni fragment obrazu i narysuj go na wyjściowym canvasie
-        const crop = cell.cropRegion;
+        // 2. Wytnij odpowiedni fragment obrazu i narysuj go na wyjściowym canvasie
         const sourceElement = this.getRotatedCanvasOrImage(imageObj);
         if (crop) {
+            // Oblicz przesunięcie w mm względem lewego-górnego rogu unclipped heksa
+            const offsetXMm = minX - (posMm.x - hexDim.width / 2);
+            const offsetYMm = minY - (posMm.y - hexDim.height / 2);
+            
+            // Przelicz skale pikseli obrazu źródłowego na mm
+            const imgPixelScaleX = crop.w / hexDim.width;
+            const imgPixelScaleY = crop.h / hexDim.height;
+            
+            const sourceX = crop.x + offsetXMm * imgPixelScaleX;
+            const sourceY = crop.y + offsetYMm * imgPixelScaleY;
+            const sourceW = wMm * imgPixelScaleX;
+            const sourceH = hMm * imgPixelScaleY;
+
             ctx.drawImage(
                 sourceElement,
-                crop.x, crop.y, crop.w, crop.h, // Skąd (z obrazu źródłowego)
+                sourceX, sourceY, sourceW, sourceH, // Skąd (z obrazu źródłowego)
                 0, 0, canvasW, canvasH           // Dokąd (na cały wyjściowy canvas)
             );
         } else {

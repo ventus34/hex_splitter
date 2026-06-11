@@ -104,9 +104,9 @@ class ExportManager {
     }
 
     /**
-     * Eksportuje pojedynczą ramkę jako plik PNG
+     * Eksportuje ramki jako pliki STL spakowane w ZIP
      */
-    async exportFramePNG() {
+    async exportFrameSTL() {
         const frameEnable = document.getElementById('frame-enable').checked;
         if (!frameEnable) {
             alert(i18n.t('alert_frames_disabled'));
@@ -120,100 +120,41 @@ class ExportManager {
         }
 
         const frameType = document.getElementById('frame-type').value;
-        const frameWidth = parseFloat(document.getElementById('frame-width').value) || 4;
+        const frameWidth = parseFloat(document.getElementById('frame-width').value) || 2;
         const clearance = parseFloat(document.getElementById('frame-clearance').value) || 0.2;
-        const frameColor = document.getElementById('frame-color').value || '#1a1a1a';
+        const frameHeight = parseFloat(document.getElementById('frame-height').value) || 10;
+        const sleeveBase = parseFloat(document.getElementById('frame-sleeve-base').value) || 1.2;
 
-        let cellDpi = this.gridManager.config.dpi;
-        if (cellDpi === 'original') {
-            cellDpi = 300; // fallback dla ramek (brak oryginalnej rozdzielczości obrazu)
-        }
-
-        this.showProgress(true, 'Generowanie ramek PNG...', 0);
+        this.showProgress(true, i18n.t('generating_stl_frames'), 0);
         const zip = new JSZip();
         let processed = 0;
 
         try {
             for (const cell of activeCells) {
-                const canvas = FrameGenerator.createFrameCanvas(
+                const stlString = FrameGenerator.generateFrameSTL(
                     cell,
                     this.gridManager,
                     frameType,
                     frameWidth,
                     clearance,
-                    frameColor,
-                    cellDpi
+                    frameHeight,
+                    sleeveBase
                 );
-                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-                zip.file(`ramka_${cell.label}.png`, blob);
+                const blob = new Blob([stlString], { type: 'application/sla' });
+                zip.file(`ramka_${cell.label}.stl`, blob);
                 
                 processed++;
                 const percent = (processed / activeCells.length) * 100;
-                this.showProgress(true, i18n.t('generating_png_frames'), percent);
+                this.showProgress(true, i18n.t('generating_stl_frames'), percent);
                 await new Promise(r => setTimeout(r, 10));
             }
 
             this.showProgress(true, i18n.t('compressing_zip'), 100);
             const content = await zip.generateAsync({ type: 'blob' });
-            saveAs(content, `hexsplitter_ramki_${frameType}_png.zip`);
+            saveAs(content, `hexsplitter_ramki_${frameType}_stl.zip`);
         } catch (err) {
-            console.error('Błąd generowania ramek PNG:', err);
-            alert(i18n.t('alert_frame_png_error') + err.message);
-        }
-
-        this.showProgress(false);
-    }
-
-    /**
-     * Eksportuje ramki jako pliki SVG spakowane w ZIP
-     */
-    async exportFrameSVG() {
-        const frameEnable = document.getElementById('frame-enable').checked;
-        if (!frameEnable) {
-            alert(i18n.t('alert_frames_disabled'));
-            return;
-        }
-
-        const activeCells = this.gridManager.getActiveCells();
-        if (activeCells.length === 0) {
-            alert(i18n.t('alert_no_frames'));
-            return;
-        }
-
-        const frameType = document.getElementById('frame-type').value;
-        const frameWidth = parseFloat(document.getElementById('frame-width').value) || 4;
-        const clearance = parseFloat(document.getElementById('frame-clearance').value) || 0.2;
-        const frameColor = document.getElementById('frame-color').value || '#1a1a1a';
-
-        this.showProgress(true, 'Generowanie ramek SVG...', 0);
-        const zip = new JSZip();
-        let processed = 0;
-
-        try {
-            for (const cell of activeCells) {
-                const svgString = FrameGenerator.createFrameSVG(
-                    cell,
-                    this.gridManager,
-                    frameType,
-                    frameWidth,
-                    clearance,
-                    frameColor
-                );
-                const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-                zip.file(`ramka_${cell.label}.svg`, blob);
-                
-                processed++;
-                const percent = (processed / activeCells.length) * 100;
-                this.showProgress(true, i18n.t('generating_svg_frames'), percent);
-                await new Promise(r => setTimeout(r, 10));
-            }
-
-            this.showProgress(true, i18n.t('compressing_zip'), 100);
-            const content = await zip.generateAsync({ type: 'blob' });
-            saveAs(content, `hexsplitter_ramki_${frameType}_svg.zip`);
-        } catch (err) {
-            console.error('Błąd generowania ramek SVG:', err);
-            alert(i18n.t('alert_frame_svg_error') + err.message);
+            console.error('Błąd generowania ramek STL:', err);
+            alert(i18n.t('alert_frame_stl_error') + err.message);
         }
 
         this.showProgress(false);
@@ -391,21 +332,29 @@ class ExportManager {
         activeCells.forEach(cell => {
             const pos = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
             
-            const innerSizeMm = hexSize + clearance;
-            const innerVertices = HexMath.getHexVertices(pos.x * scale, pos.y * scale, innerSizeMm * scale, orientation);
+            let innerVerticesMm, outerVerticesMm;
+            
+            if (frameEnable) {
+                const frameVerts = FrameGenerator.getFrameVerticesMm(cell, this.gridManager, frameWidth, clearance);
+                innerVerticesMm = frameVerts.innerVerticesMm;
+                outerVerticesMm = frameVerts.outerVerticesMm;
+            } else {
+                innerVerticesMm = HexMath.getCellVertices(cell, this.gridManager.config, hexSize);
+                outerVerticesMm = [];
+            }
+            
+            const toCanvasPixels = (v) => ({
+                x: v.x * scale,
+                y: v.y * scale
+            });
+            
+            const innerVertices = innerVerticesMm.map(toCanvasPixels);
+            const outerVertices = outerVerticesMm.map(toCanvasPixels);
 
             ctx.save();
 
             // 1. Rysuj ramkę wokół heksa (jeśli włączona)
-            if (frameEnable) {
-                const offsetsMm = [];
-                for (let i = 0; i < 6; i++) {
-                    const isShared = HexMath.isEdgeShared(cell, i, this.gridManager);
-                    offsetsMm.push(isShared ? gap / 2 : frameWidth);
-                }
-                const offsetsScale = offsetsMm.map(o => o * scale);
-                const outerVertices = HexMath.getOffsetOuterVertices(pos.x * scale, pos.y * scale, innerSizeMm * scale, orientation, offsetsScale);
-
+            if (frameEnable && outerVertices.length > 0) {
                 ctx.fillStyle = frameColor;
                 ctx.beginPath();
                 outerVertices.forEach((v, idx) => {
@@ -444,12 +393,19 @@ class ExportManager {
             ctx.closePath();
             ctx.stroke();
 
-            // 4. Numeracja/Etykieta w środku
+            // 4. Numeracja/Etykieta w środku (obliczona średnia wierzchołków dla optymalnego wycentrowania)
+            let sumX = 0, sumY = 0;
+            innerVertices.forEach(v => {
+                sumX += v.x;
+                sumY += v.y;
+            });
+            const textCenter = innerVertices.length > 0 ? { x: sumX / innerVertices.length, y: sumY / innerVertices.length } : { x: pos.x * scale, y: pos.y * scale };
+
             ctx.fillStyle = '#000000';
             ctx.font = `bold ${Math.round(hexSize * 0.3 * scale)}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(cell.label, pos.x * scale, pos.y * scale);
+            ctx.fillText(cell.label, textCenter.x, textCenter.y);
 
             ctx.restore();
         });

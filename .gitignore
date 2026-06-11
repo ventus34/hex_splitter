@@ -1,0 +1,19 @@
+# Node modules
+node_modules/
+
+# OS/System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test images / local assets
+sample_landscape.png
+
+# IDE/Editor configs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

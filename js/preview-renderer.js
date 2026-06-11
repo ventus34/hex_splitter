@@ -22,6 +22,7 @@ class PreviewRenderer {
             showGaps: true,
             showLabels: true,
             showFrames: false,
+            showHangers: false,
             showRuler: true,
             background: 'dark', // 'transparent' | 'dark' | 'light' | 'wall'
             amsPreview: false,
@@ -185,14 +186,14 @@ class PreviewRenderer {
         // 3. Rysuj obrazy heksów
         activeCells.forEach(cell => {
             const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
-            const screenPos = this.worldToScreen(posMm.x, posMm.y);
-            const screenHexSize = hexSize * this.zoom;
+            const screenCenter = this.worldToScreen(posMm.x, posMm.y);
 
-            const vertices = HexMath.getHexVertices(screenPos.x, screenPos.y, screenHexSize, orientation);
+            const verticesMm = HexMath.getCellVertices(cell, this.gridManager.config);
+            const vertices = verticesMm.map(v => this.worldToScreen(v.x, v.y));
 
             drawCtx.save();
             
-            // Przytnij do heksagonu
+            // Przytnij do heksagonu/wielokąta
             drawCtx.beginPath();
             vertices.forEach((v, idx) => {
                 if (idx === 0) drawCtx.moveTo(v.x, v.y);
@@ -221,13 +222,13 @@ class PreviewRenderer {
                     drawCtx.drawImage(
                         sourceElement,
                         crop.x, crop.y, crop.w, crop.h,
-                        screenPos.x - drawW / 2, screenPos.y - drawH / 2,
+                        screenCenter.x - drawW / 2, screenCenter.y - drawH / 2,
                         drawW, drawH
                     );
                 } else {
                     drawCtx.drawImage(
                         sourceElement,
-                        screenPos.x - drawW / 2, screenPos.y - drawH / 2,
+                        screenCenter.x - drawW / 2, screenCenter.y - drawH / 2,
                         drawW, drawH
                     );
                 }
@@ -258,7 +259,12 @@ class PreviewRenderer {
             }
         }
 
-        // 5. Rysuj etykiety (na samym końcu, zawsze na głównym płótnie, by były ostre)
+        // 5. Rysuj uchwyty ścienne (Y-splitters) jeśli włączone
+        if (this.options.showHangers) {
+            this.drawHangers(this.ctx);
+        }
+ 
+        // 6. Rysuj etykiety (na samym końcu, zawsze na głównym płótnie, by były ostre)
         if (this.options.showLabels) {
             activeCells.forEach(cell => {
                 const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
@@ -281,7 +287,7 @@ class PreviewRenderer {
             });
         }
 
-        // 6. Rysuj miarkę (jeśli włączona)
+        // 7. Rysuj miarkę (jeśli włączona)
         if (this.options.showRuler) {
             this.drawRulers(w, h);
         }
@@ -425,24 +431,10 @@ class PreviewRenderer {
      * Rysuje ramkę pod heksagonem z wizualizacją złączy
      */
     drawFrame(ctx, cell, hexSize, orientation, gap, type, frameWidthMm, clearanceMm, frameColor) {
-        const stagger = this.gridManager.config.stagger || 'left';
-        const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
-        const screenPos = this.worldToScreen(posMm.x, posMm.y);
+        const { innerVerticesMm, outerVerticesMm } = FrameGenerator.getFrameVerticesMm(cell, this.gridManager, frameWidthMm, clearanceMm);
 
-        // Rozmiar wewnętrzny ramki (rozmiar heksa + tolerancja)
-        const innerHexSizeMm = hexSize + clearanceMm;
-        const innerHexSizePx = innerHexSizeMm * this.zoom;
-
-        // Ustalenie offsetów dla każdego boku (na podglądzie w pikselach)
-        const offsetsMm = [];
-        for (let i = 0; i < 6; i++) {
-            const isShared = HexMath.isEdgeShared(cell, i, this.gridManager);
-            offsetsMm.push(isShared ? this.gridManager.config.gap / 2 : frameWidthMm);
-        }
-        const offsetsPx = offsetsMm.map(o => o * this.zoom);
-
-        const outerVertices = HexMath.getOffsetOuterVertices(screenPos.x, screenPos.y, innerHexSizePx, orientation, offsetsPx);
-        const innerVertices = HexMath.getHexVertices(screenPos.x, screenPos.y, innerHexSizePx, orientation);
+        const innerVertices = innerVerticesMm.map(v => this.worldToScreen(v.x, v.y));
+        const outerVertices = outerVerticesMm.map(v => this.worldToScreen(v.x, v.y));
 
         ctx.save();
         
@@ -508,8 +500,6 @@ class PreviewRenderer {
             ctx.closePath();
             ctx.fill('evenodd');
         }
-
-
 
         ctx.restore();
     }
@@ -660,6 +650,144 @@ class PreviewRenderer {
             }
             this.ctx.restore();
         }
+    }
+
+    getHangerJunctions() {
+        const activeCells = this.gridManager.getActiveCells();
+        const hexSize = this.gridManager.config.hexSize;
+        const orientation = this.gridManager.config.orientation;
+        const stagger = this.gridManager.config.stagger || 'left';
+        
+        const vertexMap = new Map();
+        
+        activeCells.forEach(cell => {
+            const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, 0, stagger);
+            const vertices = HexMath.getHexVertices(posMm.x, posMm.y, hexSize, orientation);
+            
+            vertices.forEach(v => {
+                const key = `${v.x.toFixed(2)},${v.y.toFixed(2)}`;
+                if (!vertexMap.has(key)) {
+                    vertexMap.set(key, {
+                        x: v.x,
+                        y: v.y,
+                        cells: []
+                    });
+                }
+                const entry = vertexMap.get(key);
+                entry.cells.push({
+                    cell: cell,
+                    center: posMm
+                });
+            });
+        });
+        
+        const junctions = [];
+        for (const [key, entry] of vertexMap.entries()) {
+            if (entry.cells.length === 3) {
+                junctions.push({
+                    x: entry.x,
+                    y: entry.y,
+                    cells: entry.cells
+                });
+            }
+        }
+        
+        return junctions;
+    }
+
+    drawHangers(ctx) {
+        const junctions = this.getHangerJunctions();
+        if (junctions.length === 0) return;
+
+        const gap = this.gridManager.config.gap || 0;
+        const hexSize = this.gridManager.config.hexSize || 100;
+        
+        const inputHangerClearance = document.getElementById('hanger-clearance');
+        const inputHangerArmWidth = document.getElementById('hanger-arm-width');
+        const inputHangerArmLength = document.getElementById('hanger-arm-length');
+        const inputHangerRidgeHeight = document.getElementById('hanger-ridge-height');
+
+        const clearance = parseFloat(inputHangerClearance?.value || 0.3);
+        const configuredArmWidth = parseFloat(inputHangerArmWidth?.value || 12);
+        const configuredArmLength = parseFloat(inputHangerArmLength?.value || 30);
+        const ridgeHeightMm = parseFloat(inputHangerRidgeHeight?.value || 2.0);
+
+        // Zabezpieczenie przed zbyt małymi heksami - ramiona nie mogą wykraczać poza obrys heksa (tak samo jak w hanger-generator.js)
+        const maxArmLength = hexSize * 0.95;
+        const armLengthMm = Math.min(configuredArmLength, maxArmLength);
+        const armWidthMm = Math.min(configuredArmWidth, hexSize * 0.8);
+
+        const ridgeWidthMm = Math.max(0, gap - clearance);
+
+        ctx.save();
+        
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+
+        junctions.forEach(j => {
+            const screenCenter = this.worldToScreen(j.x, j.y);
+            
+            const vectors = j.cells.map(c => ({
+                x: c.center.x - j.x,
+                y: c.center.y - j.y
+            }));
+            
+            const armDirs = [];
+            for (let i = 0; i < 3; i++) {
+                const next = (i + 1) % 3;
+                const sumX = vectors[i].x + vectors[next].x;
+                const sumY = vectors[i].y + vectors[next].y;
+                const len = Math.sqrt(sumX*sumX + sumY*sumY);
+                if (len > 0) {
+                    armDirs.push({ x: sumX / len, y: sumY / len });
+                }
+            }
+
+            const armWidthPx = armWidthMm * this.zoom;
+            const armLengthPx = armLengthMm * this.zoom;
+            const centerRadiusPx = (armWidthMm / 2) * this.zoom;
+
+            ctx.lineWidth = armWidthPx;
+            ctx.lineCap = 'butt';
+            ctx.strokeStyle = 'rgba(255, 110, 0, 0.45)';
+            ctx.fillStyle = 'rgba(255, 110, 0, 0.45)';
+
+            // Cylinder centralny
+            ctx.beginPath();
+            ctx.arc(screenCenter.x, screenCenter.y, centerRadiusPx, 0, 2*Math.PI);
+            ctx.fill();
+
+            // Trzy ramiona
+            armDirs.forEach(dir => {
+                const endX = screenCenter.x + dir.x * armLengthPx;
+                const endY = screenCenter.y + dir.y * armLengthPx;
+                ctx.beginPath();
+                ctx.moveTo(screenCenter.x, screenCenter.y);
+                ctx.lineTo(endX, endY);
+                ctx.stroke();
+            });
+
+            // Separatory (ridges)
+            if (ridgeWidthMm > 0 && ridgeHeightMm > 0) {
+                const ridgeWidthPx = ridgeWidthMm * this.zoom;
+                ctx.lineWidth = Math.max(1.5, ridgeWidthPx);
+                ctx.lineCap = 'butt';
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+                
+                armDirs.forEach(dir => {
+                    const endX = screenCenter.x + dir.x * armLengthPx;
+                    const endY = screenCenter.y + dir.y * armLengthPx;
+                    ctx.beginPath();
+                    ctx.moveTo(screenCenter.x, screenCenter.y);
+                    ctx.lineTo(endX, endY);
+                    ctx.stroke();
+                });
+            }
+        });
+
+        ctx.restore();
     }
 
     adjustColorBrightness(hex, percent) {

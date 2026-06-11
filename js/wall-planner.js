@@ -479,11 +479,20 @@ class WallPlanner {
         const stagger = this.gridManager.config.stagger || 'left';
         const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
         
-        // Przelicz na ekran
-        const screenPos = this.worldToScreen(posMm.x, posMm.y);
-        const screenHexSize = hexSize * this.zoom;
-
-        const vertices = HexMath.getHexVertices(screenPos.x, screenPos.y, screenHexSize, orientation);
+        // Przelicz unclipped center na ekran (używane do pozycjonowania tła obrazu)
+        const screenCenter = this.worldToScreen(posMm.x, posMm.y);
+        
+        // Pobierz wierzchołki w skali mm (bez DPI) z uwzględnieniem obcinania i rzutuj na ekran
+        const verticesMm = HexMath.getCellVertices(cell, this.gridManager.config);
+        const vertices = verticesMm.map(v => this.worldToScreen(v.x, v.y));
+        
+        // Oblicz screenPos jako środek wielokąta do pozycjonowania tekstu etykiety
+        let sumX = 0, sumY = 0;
+        vertices.forEach(v => {
+            sumX += v.x;
+            sumY += v.y;
+        });
+        const screenPos = vertices.length > 0 ? { x: sumX / vertices.length, y: sumY / vertices.length } : screenCenter;
 
         this.ctx.save();
 
@@ -492,7 +501,7 @@ class WallPlanner {
             if (cell.imageId && this.imageProcessor.getImage(cell.imageId)) {
                 const imageObj = this.imageProcessor.getImage(cell.imageId);
                 
-                // Przytnij do heksagonu
+                // Przytnij do heksagonu/wielokąta
                 this.ctx.beginPath();
                 vertices.forEach((v, idx) => {
                     if (idx === 0) this.ctx.moveTo(v.x, v.y);
@@ -511,13 +520,13 @@ class WallPlanner {
                     this.ctx.drawImage(
                         sourceElement,
                         crop.x, crop.y, crop.w, crop.h,
-                        screenPos.x - drawW / 2, screenPos.y - drawH / 2,
+                        screenCenter.x - drawW / 2, screenCenter.y - drawH / 2,
                         drawW, drawH
                     );
                 } else {
                     this.ctx.drawImage(
                         sourceElement,
-                        screenPos.x - drawW / 2, screenPos.y - drawH / 2,
+                        screenCenter.x - drawW / 2, screenCenter.y - drawH / 2,
                         drawW, drawH
                     );
                 }
