@@ -39,6 +39,15 @@
                     <option value="en" selected>EN</option>
                     <option value="pl">PL</option>
                 </select>
+                <button id="btn-save-project" class="btn btn-secondary btn-sm" style="margin-right: 8px;">
+                    <svg viewBox="0 0 24 24" class="icon-inline" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    <span data-i18n="btn_save_project">Save Project</span>
+                </button>
+                <button id="btn-load-project" class="btn btn-secondary btn-sm" style="margin-right: 8px;">
+                    <svg viewBox="0 0 24 24" class="icon-inline" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M14 3v12M10 7l4-4 4 4"/></svg>
+                    <span data-i18n="btn_load_project">Load Project</span>
+                </button>
+                <input type="file" id="project-file-input" accept=".hexproj" style="display: none;">
                 <button id="btn-reset-project" class="btn btn-danger-outline btn-sm">
                     <svg viewBox="0 0 24 24" class="icon-inline"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                     <span data-i18n="btn_reset_project">Clear project</span>
@@ -110,7 +119,7 @@
                         </select>
                         <div id="single-image-zoom-group" class="form-group mt-3 hidden">
                             <label for="single-image-zoom"><span data-i18n="image_zoom">Image zoom:</span> <span id="val-single-image-zoom">100%</span></label>
-                            <input type="range" id="single-image-zoom" class="form-range" min="100" max="500" step="5" value="100">
+                            <input type="range" id="single-image-zoom" class="form-range" min="100" max="500" step="1" value="100">
                         </div>
                     </div>
                 </section>

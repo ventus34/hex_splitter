@@ -895,7 +895,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         zoomSlider.className = 'form-range image-zoom-slider';
         zoomSlider.min = '100';
         zoomSlider.max = '500';
-        zoomSlider.step = '5';
+        zoomSlider.step = '1';
         zoomSlider.value = Math.round((imageObj.zoom || 1.0) * 100);
 
         zoomSlider.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -1140,6 +1140,173 @@ document.addEventListener('DOMContentLoaded', async () => {
         checkBedVolumeAlert();
         preview.scheduleRender();
         saveProjectState();
+    });
+
+    // Zapis projektu do pliku .hexproj (ZIP z grafikami i jsonem)
+    async function saveProjectToFile() {
+        try {
+            const zip = new JSZip();
+
+            // Kompiluj dane stanu projektu (takie same jak do localStorage)
+            const layoutData = {
+                grid: {
+                    columns: parseInt(inputCols.value) || 4,
+                    rows: parseInt(inputRows.value) || 3,
+                    hexSize: parseFloat(inputHexSize.value) || 100,
+                    orientation: selectOrientation.value,
+                    stagger: selectStagger.value,
+                    gap: parseFloat(inputGap.value) || 2,
+                    dpi: selectDpi.value,
+                    exportFormat: selectFormat.value,
+                    exportQuality: parseInt(inputQuality.value) || 90,
+                    singleImageOffsetX: gridManager.config.singleImageOffsetX || 0,
+                    singleImageOffsetY: gridManager.config.singleImageOffsetY || 0,
+                    singleImageScale: gridManager.config.singleImageScale || 1.0,
+                    halfHexes: chkHalfHexes?.checked || false
+                },
+                bed: {
+                    verify: chkBedVerify.checked,
+                    sizeX: parseFloat(inputBedX.value) || 256,
+                    sizeY: parseFloat(inputBedY.value) || 256
+                },
+                frame: {
+                    enable: chkFrameEnable.checked,
+                    type: selectFrameType.value,
+                    width: parseFloat(inputFrameWidth.value) || 2,
+                    clearance: parseFloat(inputFrameClearance.value) || 0.2,
+                    height: parseFloat(inputFrameHeight?.value) || 10,
+                    sleeveBase: parseFloat(inputFrameSleeveBase?.value) || 1.2,
+                    color: inputFrameColor.value,
+                    syncWidth: chkSyncFrameWidth ? chkSyncFrameWidth.checked : true
+                },
+                relief: {
+                    enable: chkReliefEnable.checked,
+                    height: parseFloat(inputReliefHeight.value) || 2.0,
+                    baseThickness: parseFloat(inputReliefBaseThickness.value) || 1.2,
+                    invert: chkReliefInvert.checked,
+                    sectors: parseInt(inputReliefSectors.value) || 120,
+                    rings: parseInt(inputReliefRings.value) || 60,
+                    blur: parseFloat(inputReliefBlur.value) || 1.5
+                },
+                hanger: {
+                    clearance: parseFloat(inputHangerClearance.value) || 0.3,
+                    baseThickness: parseFloat(inputHangerBaseThickness.value) || 1.2,
+                    ridgeHeight: parseFloat(inputHangerRidgeHeight.value) || 2.0,
+                    armWidth: parseFloat(inputHangerArmWidth.value) || 12,
+                    armLength: parseFloat(inputHangerArmLength.value) || 30
+                },
+                previewOptions: {
+                    showGaps: chkPreviewGaps.checked,
+                    showLabels: chkPreviewLabels.checked,
+                    showFrames: chkPreviewFrames.checked,
+                    showRuler: chkPreviewRuler ? chkPreviewRuler.checked : true,
+                    showHangers: chkPreviewHangers ? chkPreviewHangers.checked : false,
+                    background: selectPreviewBg.value
+                },
+                imageMode: getActiveImageMode(),
+                activeImageId: imageProcessor.activeImageId,
+                cells: gridManager.getAllCells().map(c => ({
+                    q: c.q,
+                    r: c.r,
+                    enabled: c.enabled,
+                    imageId: c.imageId,
+                    cropRegion: c.cropRegion,
+                    groupId: c.groupId,
+                    groupShiftX: c.groupShiftX,
+                    groupShiftY: c.groupShiftY,
+                    groupZoom: c.groupZoom
+                }))
+            };
+
+            const savedImages = await DBStore.getAll();
+            const imagesMeta = [];
+
+            savedImages.forEach(img => {
+                imagesMeta.push({
+                    id: img.id,
+                    name: img.name,
+                    width: img.width,
+                    height: img.height,
+                    rotation: img.rotation,
+                    zoom: img.zoom,
+                    filename: `images/${img.id}`
+                });
+                zip.file(`images/${img.id}`, img.blob);
+            });
+
+            const projectData = {
+                layout: layoutData,
+                images: imagesMeta
+            };
+
+            zip.file('project.json', JSON.stringify(projectData, null, 2));
+
+            const content = await zip.generateAsync({ type: 'blob' });
+            saveAs(content, 'project.hexproj');
+        } catch (err) {
+            console.error('Błąd zapisu projektu:', err);
+            alert('Wystąpił błąd podczas eksportu projektu do pliku.');
+        }
+    }
+
+    // Wczytanie projektu z pliku .hexproj
+    async function loadProjectFromFile(file) {
+        try {
+            const zip = await JSZip.loadAsync(file);
+            const projectJsonFile = zip.file('project.json');
+            if (!projectJsonFile) {
+                alert('Błąd: Wybrany plik nie zawiera poprawnych danych projektu.');
+                return;
+            }
+
+            const projectText = await projectJsonFile.async('text');
+            const projectData = JSON.parse(projectText);
+
+            if (!projectData.layout || !projectData.images) {
+                alert('Błąd: Niepoprawny format danych projektu.');
+                return;
+            }
+
+            // Wyczyść bieżący projekt
+            gridManager.clearImageAssignments();
+            await DBStore.clear();
+            imageProcessor.clearAll();
+
+            // Importuj obrazy
+            for (const imgMeta of projectData.images) {
+                const imgFile = zip.file(imgMeta.filename);
+                if (imgFile) {
+                    const blob = await imgFile.async('blob');
+                    await DBStore.save(imgMeta.id, imgMeta.name, blob, imgMeta.width, imgMeta.height);
+                    await DBStore.updateRotation(imgMeta.id, imgMeta.rotation || 0);
+                    await DBStore.updateZoom(imgMeta.id, imgMeta.zoom || 1.0);
+                }
+            }
+
+            // Zapisz układ w localStorage
+            localStorage.setItem('hexsplitter_project_layout', JSON.stringify(projectData.layout));
+
+            // Przeładuj stronę, aby wczytać stan na czysto
+            window.location.reload();
+        } catch (err) {
+            console.error('Błąd wczytywania projektu:', err);
+            alert('Wystąpił błąd podczas wczytywania projektu z pliku.');
+        }
+    }
+
+    // Eventy zapisu i wczytywania projektu z pliku
+    document.getElementById('btn-save-project').addEventListener('click', saveProjectToFile);
+    
+    const projectFileInput = document.getElementById('project-file-input');
+    document.getElementById('btn-load-project').addEventListener('click', () => {
+        projectFileInput.click();
+    });
+    
+    projectFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            loadProjectFromFile(file);
+        }
     });
 
     // Resetowanie projektu
