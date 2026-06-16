@@ -125,6 +125,10 @@ class GridManager {
             if (!cell.enabled) {
                 cell.imageId = null;
                 cell.cropRegion = null;
+                cell.groupId = null;
+                cell.groupShiftX = null;
+                cell.groupShiftY = null;
+                cell.groupZoom = null;
             }
             return true;
         }
@@ -140,6 +144,10 @@ class GridManager {
             if (!enabled) {
                 cell.imageId = null;
                 cell.cropRegion = null;
+                cell.groupId = null;
+                cell.groupShiftX = null;
+                cell.groupShiftY = null;
+                cell.groupZoom = null;
             }
         }
     }
@@ -172,6 +180,10 @@ class GridManager {
         for (const cell of this.cells.values()) {
             cell.imageId = null;
             cell.cropRegion = null;
+            cell.groupId = null;
+            cell.groupShiftX = null;
+            cell.groupShiftY = null;
+            cell.groupZoom = null;
         }
     }
 
@@ -193,6 +205,40 @@ class GridManager {
             // Pobierz wierzchołki w skali mm (bez DPI) z uwzględnieniem ewentualnego obcinania
             const vertices = HexMath.getCellVertices(cell, this.config);
 
+            vertices.forEach(v => {
+                if (v.x < minX) minX = v.x;
+                if (v.x > maxX) maxX = v.x;
+                if (v.y < minY) minY = v.y;
+                if (v.y > maxY) maxY = v.y;
+            });
+        });
+
+        const width = maxX - minX;
+        const height = maxY - minY;
+
+        return {
+            width,
+            height,
+            minX,
+            minY,
+            maxX,
+            maxY
+        };
+    }
+
+    /**
+     * Oblicza wymiary fizyczne grupy heksów w mm
+     */
+    getBoundingBoxOfCells(cells) {
+        if (!cells || cells.length === 0) return { width: 0, height: 0, minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+
+        cells.forEach(cell => {
+            const vertices = HexMath.getCellVertices(cell, this.config);
             vertices.forEach(v => {
                 if (v.x < minX) minX = v.x;
                 if (v.x > maxX) maxX = v.x;

@@ -107,6 +107,56 @@ class WallPlanner {
     }
 
     /**
+     * Przypisuje grupę komórek do jednego obrazu w trybie span
+     */
+    assignGroupToCells(targetCells, imageId) {
+        if (!targetCells || targetCells.length === 0) return;
+
+        // 1. Znajdź wszystkie stare grupy, które zostaną zmodyfikowane
+        const modifiedGroupIds = new Set();
+        targetCells.forEach(cell => {
+            if (cell.groupId) {
+                modifiedGroupIds.add(cell.groupId);
+            }
+        });
+
+        // 2. Nadaj nowy groupId i imageId dla targetCells
+        const newGroupId = 'group_' + Math.random().toString(36).substr(2, 9);
+        targetCells.forEach(cell => {
+            cell.groupId = newGroupId;
+            cell.imageId = imageId;
+        });
+
+        // 3. Oblicz mapowanie dla nowej grupy
+        const imageObj = this.imageProcessor.getImage(imageId);
+        this.imageProcessor.recalculateGroupImageMapping(
+            this.gridManager,
+            targetCells,
+            imageId,
+            (imageObj ? imageObj.zoom : 1.0) || 1.0,
+            0,
+            0
+        );
+
+        // 4. Zaktualizuj stare grupy, z których zabraliśmy heksy
+        modifiedGroupIds.forEach(oldGroupId => {
+            if (oldGroupId === newGroupId) return;
+            const remainingCells = this.gridManager.getAllCells().filter(c => c.enabled && c.groupId === oldGroupId);
+            if (remainingCells.length > 0) {
+                const firstCell = remainingCells[0];
+                this.imageProcessor.recalculateGroupImageMapping(
+                    this.gridManager,
+                    remainingCells,
+                    firstCell.imageId,
+                    firstCell.groupZoom || 1.0,
+                    firstCell.groupShiftX || 0,
+                    firstCell.groupShiftY || 0
+                );
+            }
+        });
+    }
+
+    /**
      * Inicjalizuje zdarzenia myszy, dotyku i drag-and-drop
      */
     initEvents() {
@@ -159,16 +209,40 @@ class WallPlanner {
                             this.lastMouseY = e.clientY;
                             this.canvas.style.cursor = 'grabbing';
                         }
+                    } else if (imageMode === 'span') {
+                        // W trybie span przeciągamy obraz w grupie heksów
+                        if (cell && cell.enabled && cell.imageId && cell.groupId && cell.cropRegion) {
+                            this.isDraggingImage = true;
+                            this.draggedCell = cell;
+                            this.lastMouseX = e.clientX;
+                            this.lastMouseY = e.clientY;
+                            this.canvas.style.cursor = 'grabbing';
+                        }
                     }
                 } else {
                     // Tryb siatki
                     if (cell) {
+                        const oldGroupId = cell.groupId;
                         this.gridManager.toggleCell(hex.q, hex.r);
                         
                         // Po zmianie struktury, przelicz ponownie mapowanie (w trybie single-image)
                         const imageMode = document.querySelector('input[name="image-mode"]:checked').value;
                         if (imageMode === 'single') {
                             this.imageProcessor.recalculateSingleImageMapping(this.gridManager);
+                        } else if (oldGroupId) {
+                            // Jeśli wyłączyliśmy komórkę i należała do grupy w trybie span, przelicz grupę
+                            const remainingCells = this.gridManager.getAllCells().filter(c => c.enabled && c.groupId === oldGroupId);
+                            if (remainingCells.length > 0) {
+                                const firstCell = remainingCells[0];
+                                this.imageProcessor.recalculateGroupImageMapping(
+                                    this.gridManager,
+                                    remainingCells,
+                                    firstCell.imageId,
+                                    firstCell.groupZoom || 1.0,
+                                    firstCell.groupShiftX || 0,
+                                    firstCell.groupShiftY || 0
+                                );
+                            }
                         }
                         
                         this.scheduleRender();
@@ -233,6 +307,33 @@ class WallPlanner {
                         cell.cropRegion.x = Math.max(minX, Math.min(maxX, newCropX));
                         cell.cropRegion.y = Math.max(minY, Math.min(maxY, newCropY));
                     }
+                } else if (imageMode === 'span' && this.draggedCell) {
+                    // Przesuwanie obrazu w grupie heksów
+                    const cell = this.draggedCell;
+                    const groupId = cell.groupId;
+                    const imageId = cell.imageId;
+                    const imageObj = this.imageProcessor.getImage(imageId);
+                    if (imageObj) {
+                        const groupCells = this.gridManager.getAllCells().filter(c => c.enabled && c.groupId === groupId);
+                        if (groupCells.length > 0) {
+                            const currentShiftX = cell.groupShiftX || 0;
+                            const currentShiftY = cell.groupShiftY || 0;
+
+                            const newShiftX = currentShiftX + dx / this.zoom;
+                            const newShiftY = currentShiftY + dy / this.zoom;
+
+                            const groupZoom = cell.groupZoom || 1.0;
+
+                            this.imageProcessor.recalculateGroupImageMapping(
+                                this.gridManager,
+                                groupCells,
+                                imageId,
+                                groupZoom,
+                                newShiftX,
+                                newShiftY
+                            );
+                        }
+                    }
                 }
 
                 this.scheduleRender();
@@ -267,6 +368,12 @@ class WallPlanner {
                         } else {
                             this.canvas.style.cursor = 'default';
                         }
+                    } else if (imageMode === 'span') {
+                        if (cell && cell.enabled && cell.imageId) {
+                            this.canvas.style.cursor = 'grab';
+                        } else {
+                            this.canvas.style.cursor = 'default';
+                        }
                     }
                 } else {
                     this.canvas.style.cursor = 'default';
@@ -285,6 +392,7 @@ class WallPlanner {
                 this.isPanning = false;
                 this.canvas.style.cursor = 'default';
             }
+
             if (this.isDraggingImage) {
                 this.isDraggingImage = false;
                 this.draggedCell = null;
@@ -383,6 +491,19 @@ class WallPlanner {
                 const imageMode = document.querySelector('input[name="image-mode"]:checked').value;
                 if (imageMode === 'multi') {
                     this.imageProcessor.calculateCellCoverCrop(cell, imageObj, this.gridManager);
+                    this.scheduleRender();
+                    this.canvas.dispatchEvent(new CustomEvent('gridchange'));
+                } else if (imageMode === 'span') {
+                    // Automatyczne grupowanie: znajdujemy wszystkie aktywne heksy z tym samym imageId
+                    const existingGroupCells = this.gridManager.getAllCells().filter(c => c.enabled && c.imageId === imageId);
+                    
+                    // Łączymy je z upuszczonym heksem w jedną tablicę
+                    const targetCells = new Set(existingGroupCells);
+                    targetCells.add(cell);
+                    
+                    const targetCellsArray = Array.from(targetCells);
+                    
+                    this.assignGroupToCells(targetCellsArray, imageId);
                     this.scheduleRender();
                     this.canvas.dispatchEvent(new CustomEvent('gridchange'));
                 }
@@ -574,7 +695,17 @@ class WallPlanner {
 
             // Czy to komórka nad którą stoi kursor?
             const isHovered = (this.hoveredCellKey === `${cell.q},${cell.r}`);
-            if (isHovered) {
+            const imageMode = document.querySelector('input[name="image-mode"]:checked')?.value || 'single';
+            
+            let isGroupHovered = false;
+            if (imageMode === 'span' && cell.groupId && this.hoveredCellKey) {
+                const hoveredCell = this.gridManager.getCell(...this.hoveredCellKey.split(',').map(Number));
+                if (hoveredCell && hoveredCell.groupId === cell.groupId) {
+                    isGroupHovered = true;
+                }
+            }
+
+            if (isHovered || isGroupHovered) {
                 this.ctx.strokeStyle = '#00e5ff';
                 this.ctx.lineWidth = 3;
                 this.ctx.shadowColor = 'rgba(0, 229, 255, 0.8)';

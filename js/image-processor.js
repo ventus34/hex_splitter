@@ -221,6 +221,83 @@ class ImageProcessor {
     }
 
     /**
+     * Mapuje pojedynczy obraz na grupę heksów (tryb "span")
+     * Oblicza regiony kadrowania dla każdej komórki w grupie.
+     */
+    recalculateGroupImageMapping(gridManager, groupCells, imageId, zoomFactor = 1.0, shiftX = 0, shiftY = 0) {
+        if (!imageId || !groupCells || groupCells.length === 0) return;
+
+        const imageObj = this.getImage(imageId);
+        if (!imageObj) return;
+
+        const bbox = gridManager.getBoundingBoxOfCells(groupCells);
+        if (bbox.width === 0 || bbox.height === 0) return;
+
+        const imgWidth = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
+        const imgHeight = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.height : imageObj.height;
+
+        const imgAspect = imgWidth / imgHeight;
+        const gridAspect = bbox.width / bbox.height;
+
+        let scale; // piksele obrazu na mm grupy siatki
+        if (imgAspect > gridAspect) {
+            // Obraz jest szerszy niż grupa heksów (dopasowanie do wysokości)
+            scale = imgHeight / bbox.height;
+        } else {
+            // Obraz jest wyższy niż grupa heksów (dopasowanie do szerokości)
+            scale = imgWidth / bbox.width;
+        }
+
+        const effectiveScale = scale / zoomFactor;
+
+        // Wymiary grupy w pikselach przy efektywnej skali
+        const gridWidthPx = bbox.width * effectiveScale;
+        const gridHeightPx = bbox.height * effectiveScale;
+
+        // Offset centrujący przy efektywnej skali
+        const offsetX = (imgWidth - gridWidthPx) / 2;
+        const offsetY = (imgHeight - gridHeightPx) / 2;
+
+        // Clamp shiftX i shiftY tak, aby grupa nie wychodziła poza granice obrazu
+        const maxShiftXMm = Math.max(0, offsetX / effectiveScale);
+        const maxShiftYMm = Math.max(0, offsetY / effectiveScale);
+
+        const clampedShiftX = Math.max(-maxShiftXMm, Math.min(maxShiftXMm, shiftX));
+        const clampedShiftY = Math.max(-maxShiftYMm, Math.min(maxShiftYMm, shiftY));
+
+        const hexSize = gridManager.config.hexSize;
+        const orientation = gridManager.config.orientation;
+        const gap = gridManager.config.gap;
+
+        // Pobierz wymiary fizyczne jednego heksa
+        const hexDim = HexMath.getHexDimensions(hexSize, orientation);
+
+        groupCells.forEach(cell => {
+            if (!cell.enabled) return;
+
+            // Środek heksa w układzie siatki (w mm)
+            const stagger = gridManager.config.stagger || 'left';
+            const pos = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
+
+            // Oblicz bounding box heksa w mm (względem minX/minY grupy)
+            const leftMm = pos.x - hexDim.width / 2 - bbox.minX;
+            const topMm = pos.y - hexDim.height / 2 - bbox.minY;
+
+            // Przelicz na piksele w pliku źródłowym (odejmując shiftX / shiftY)
+            const x = (leftMm - clampedShiftX) * effectiveScale + offsetX;
+            const y = (topMm - clampedShiftY) * effectiveScale + offsetY;
+            const w = hexDim.width * effectiveScale;
+            const h = hexDim.height * effectiveScale;
+
+            cell.imageId = imageId;
+            cell.cropRegion = { x, y, w, h };
+            cell.groupShiftX = clampedShiftX;
+            cell.groupShiftY = clampedShiftY;
+            cell.groupZoom = zoomFactor;
+        });
+    }
+
+    /**
      * Mapuje pojedynczy obraz do pojedynczego heksu (dopasowanie Cover)
      */
     calculateCellCoverCrop(cell, imageObj, gridManager) {

@@ -167,6 +167,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     const frameSettingsSub = document.querySelector('.frame-settings-sub');
     const chkSyncFrameWidth = document.getElementById('chk-sync-frame-width');
 
+    // Elementy DOM konfiguracji reliefu 3D
+    const chkReliefEnable = document.getElementById('relief-enable');
+    const inputReliefHeight = document.getElementById('relief-height');
+    const inputReliefBaseThickness = document.getElementById('relief-base-thickness');
+    const chkReliefInvert = document.getElementById('relief-invert');
+    const inputReliefSectors = document.getElementById('relief-sectors');
+    const inputReliefRings = document.getElementById('relief-rings');
+    const inputReliefBlur = document.getElementById('relief-blur');
+    const valReliefBlur = document.getElementById('val-relief-blur');
+    const reliefSettingsSub = document.querySelector('.relief-settings-sub');
+    const btnExport3dHexesStl = document.getElementById('btn-export-3d-hexes-stl');
+
     // Elementy biblioteki obrazów
     const fileInput = document.getElementById('file-input');
     const dropzone = document.getElementById('dropzone');
@@ -294,6 +306,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 color: inputFrameColor.value,
                 syncWidth: chkSyncFrameWidth ? chkSyncFrameWidth.checked : true
             },
+            relief: {
+                enable: chkReliefEnable.checked,
+                height: parseFloat(inputReliefHeight.value) || 2.0,
+                baseThickness: parseFloat(inputReliefBaseThickness.value) || 1.2,
+                invert: chkReliefInvert.checked,
+                sectors: parseInt(inputReliefSectors.value) || 120,
+                rings: parseInt(inputReliefRings.value) || 60,
+                blur: parseFloat(inputReliefBlur.value) || 1.5
+            },
             hanger: {
                 clearance: parseFloat(inputHangerClearance.value) || 0.3,
                 baseThickness: parseFloat(inputHangerBaseThickness.value) || 1.2,
@@ -316,7 +337,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 r: c.r,
                 enabled: c.enabled,
                 imageId: c.imageId,
-                cropRegion: c.cropRegion
+                cropRegion: c.cropRegion,
+                groupId: c.groupId,
+                groupShiftX: c.groupShiftX,
+                groupShiftY: c.groupShiftY,
+                groupZoom: c.groupZoom
             }))
         };
         localStorage.setItem('hexsplitter_project_layout', JSON.stringify(layoutData));
@@ -361,6 +386,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const mode = getActiveImageMode();
         if (mode === 'single') {
             imageProcessor.recalculateSingleImageMapping(gridManager);
+        } else if (mode === 'span') {
+            recalculateAllGroupsMapping();
         }
 
         planner.scheduleRender();
@@ -473,6 +500,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (input) input.addEventListener('input', handleFrameConfigChange);
     });
 
+    // Konfiguracja reliefu 3D
+    function handleReliefConfigChange() {
+        if (chkReliefEnable.checked) {
+            reliefSettingsSub.classList.remove('hidden');
+        } else {
+            reliefSettingsSub.classList.add('hidden');
+        }
+        saveProjectState();
+    }
+
+    chkReliefEnable.addEventListener('change', handleReliefConfigChange);
+    [inputReliefHeight, inputReliefBaseThickness, chkReliefInvert, inputReliefSectors, inputReliefRings].forEach(input => {
+        if (input) {
+            input.addEventListener('input', handleReliefConfigChange);
+            if (input.type === 'checkbox') {
+                input.addEventListener('change', handleReliefConfigChange);
+            }
+        }
+    });
+
+    if (inputReliefBlur) {
+        inputReliefBlur.addEventListener('input', () => {
+            if (valReliefBlur) {
+                valReliefBlur.textContent = `${inputReliefBlur.value}px`;
+            }
+            handleReliefConfigChange();
+        });
+    }
+
     if (chkSyncFrameWidth) {
         chkSyncFrameWidth.addEventListener('change', () => {
             updateFrameWidthSync();
@@ -480,13 +536,54 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Tryb przypisania grafik (Single Image vs Multi Image)
+    // Tryb przypisania grafik (Single Image vs Multi Image vs Span)
     function getActiveImageMode() {
         let activeMode = 'single';
         radioImageModes.forEach(r => {
             if (r.checked) activeMode = r.value;
         });
         return activeMode;
+    }
+
+    function updateStatusText() {
+        const canvasStatusText = document.getElementById('canvas-status-text');
+        if (!canvasStatusText) return;
+
+        if (planner.interactionMode === 'grid') {
+            canvasStatusText.textContent = i18n.t('status_grid_mode');
+        } else {
+            const mode = getActiveImageMode();
+            if (mode === 'single') {
+                canvasStatusText.textContent = i18n.t('status_image_mode_single');
+            } else if (mode === 'multi') {
+                canvasStatusText.textContent = i18n.t('status_image_mode_multi');
+            } else if (mode === 'span') {
+                canvasStatusText.textContent = i18n.t('status_image_mode_span');
+            }
+        }
+    }
+
+    function recalculateAllGroupsMapping() {
+        const groups = new Map();
+        gridManager.getAllCells().forEach(cell => {
+            if (cell.enabled && cell.imageId && cell.groupId) {
+                if (!groups.has(cell.groupId)) {
+                    groups.set(cell.groupId, []);
+                }
+                groups.get(cell.groupId).push(cell);
+            }
+        });
+        groups.forEach((groupCells, groupId) => {
+            const firstCell = groupCells[0];
+            imageProcessor.recalculateGroupImageMapping(
+                gridManager,
+                groupCells,
+                firstCell.imageId,
+                firstCell.groupZoom || 1.0,
+                firstCell.groupShiftX || 0,
+                firstCell.groupShiftY || 0
+            );
+        });
     }
 
     function updateZoomSliderVisibility() {
@@ -517,6 +614,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 gridManager.clearImageAssignments();
             }
             updateZoomSliderVisibility();
+            updateStatusText();
             planner.scheduleRender();
             preview.scheduleRender();
             saveProjectState();
@@ -749,6 +847,27 @@ document.addEventListener('DOMContentLoaded', async () => {
                         imageProcessor.calculateCellCoverCrop(cell, imageObj, gridManager);
                     }
                 });
+            } else if (mode === 'span') {
+                const groups = new Map();
+                gridManager.getAllCells().forEach(cell => {
+                    if (cell.enabled && cell.imageId === imageObj.id && cell.groupId) {
+                        if (!groups.has(cell.groupId)) {
+                            groups.set(cell.groupId, []);
+                        }
+                        groups.get(cell.groupId).push(cell);
+                    }
+                });
+                groups.forEach((groupCells, groupId) => {
+                    const firstCell = groupCells[0];
+                    imageProcessor.recalculateGroupImageMapping(
+                        gridManager,
+                        groupCells,
+                        imageObj.id,
+                        firstCell.groupZoom || 1.0,
+                        firstCell.groupShiftX || 0,
+                        firstCell.groupShiftY || 0
+                    );
+                });
             }
 
             planner.scheduleRender();
@@ -788,6 +907,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             await DBStore.updateZoom(imageObj.id, imageObj.zoom);
 
             // Synchronizacja z globalnym suwakiem w panelu bocznym
+            // Synchronizacja z globalnym suwakiem w panelu bocznym
             if (getActiveImageMode() === 'single' && imageProcessor.activeImageId === imageObj.id) {
                 if (inputSingleImageZoom) {
                     inputSingleImageZoom.value = val;
@@ -801,6 +921,28 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (cell.imageId === imageObj.id) {
                         imageProcessor.calculateCellCoverCrop(cell, imageObj, gridManager);
                     }
+                });
+            } else if (getActiveImageMode() === 'span') {
+                const groups = new Map();
+                gridManager.getAllCells().forEach(cell => {
+                    if (cell.enabled && cell.imageId === imageObj.id && cell.groupId) {
+                        if (!groups.has(cell.groupId)) {
+                            groups.set(cell.groupId, []);
+                        }
+                        groups.get(cell.groupId).push(cell);
+                    }
+                });
+                groups.forEach((groupCells, groupId) => {
+                    const currentShiftX = groupCells[0].groupShiftX || 0;
+                    const currentShiftY = groupCells[0].groupShiftY || 0;
+                    imageProcessor.recalculateGroupImageMapping(
+                        gridManager,
+                        groupCells,
+                        imageObj.id,
+                        imageObj.zoom || 1.0,
+                        currentShiftX,
+                        currentShiftY
+                    );
                 });
             }
 
@@ -982,13 +1124,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             btnModeGrid.classList.add('active');
             btnModeImage.classList.remove('active');
             planner.interactionMode = 'grid';
-            document.getElementById('canvas-status-text').textContent = i18n.t('status_grid_mode');
+            updateStatusText();
         });
         btnModeImage.addEventListener('click', () => {
             btnModeImage.classList.add('active');
             btnModeGrid.classList.remove('active');
             planner.interactionMode = 'image';
-            document.getElementById('canvas-status-text').textContent = i18n.t('status_image_mode');
+            updateStatusText();
         });
     }
 
@@ -1025,12 +1167,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 valSingleImageZoom.textContent = '100%';
             }
 
+
             // Zresetuj tryb interakcji
             if (btnModeGrid && btnModeImage) {
                 btnModeGrid.classList.add('active');
                 btnModeImage.classList.remove('active');
                 planner.interactionMode = 'grid';
-                document.getElementById('canvas-status-text').textContent = i18n.t('status_grid_mode');
+                updateStatusText();
             }
 
             // Przywróć domyślne parametry w UI
@@ -1059,15 +1202,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (chkSyncFrameWidth) chkSyncFrameWidth.checked = true;
             updateFrameWidthSync();
             if (chkPreviewRuler) chkPreviewRuler.checked = true;
-
+            document.getElementById('frame-color').value = '#1a1a1a';
+            document.getElementById('frame-color-hex').textContent = '#1A1A1A';
             
-            radioImageModes[0].checked = true;
-            singleImageWrapper.classList.remove('hidden');
-
-            gridManager.updateConfig(readConfigFromUI());
-            updateHexDimensionLabels();
+            // Zresetuj reliefy
+            chkReliefEnable.checked = true;
+            inputReliefHeight.value = 2.0;
+            inputReliefBaseThickness.value = 1.2;
+            chkReliefInvert.checked = false;
+            inputReliefSectors.value = 120;
+            inputReliefRings.value = 60;
+            if (inputReliefBlur) inputReliefBlur.value = 1.5;
+            if (valReliefBlur) valReliefBlur.textContent = '1.5px';
+            
+            // Wywołaj handlery
             handleBedVerifyChange();
             handleFrameConfigChange();
+            handleReliefConfigChange();
             
             localStorage.removeItem('hexsplitter_project_layout');
 
@@ -1084,6 +1235,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Eksport ramki jako STL
     document.getElementById('btn-export-frame-stl')?.addEventListener('click', async () => {
         await exporter.exportFrameSTL();
+    });
+
+    // Eksport heksów 3D jako STL
+    btnExport3dHexesStl?.addEventListener('click', async () => {
+        const reliefEnable = chkReliefEnable.checked;
+        if (!reliefEnable) {
+            alert(i18n.t('alert_relief_disabled'));
+            return;
+        }
+        const options = {
+            reliefHeight: parseFloat(inputReliefHeight.value) || 2.0,
+            baseThickness: parseFloat(inputReliefBaseThickness.value) || 1.2,
+            invert: chkReliefInvert.checked,
+            sectors: parseInt(inputReliefSectors.value) || 120,
+            rings: parseInt(inputReliefRings.value) || 60,
+            blur: parseFloat(inputReliefBlur.value) || 1.5
+        };
+        await exporter.exportHexes3DStl(options);
     });
 
     // Eksport uchwytu Y (STL)
@@ -1212,6 +1381,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
 
+                if (layout.relief) {
+                    if (layout.relief.enable !== undefined) chkReliefEnable.checked = layout.relief.enable;
+                    if (layout.relief.height !== undefined) inputReliefHeight.value = layout.relief.height;
+                    if (layout.relief.baseThickness !== undefined) inputReliefBaseThickness.value = layout.relief.baseThickness;
+                    if (layout.relief.invert !== undefined) chkReliefInvert.checked = layout.relief.invert;
+                    if (layout.relief.sectors !== undefined) inputReliefSectors.value = layout.relief.sectors;
+                    if (layout.relief.rings !== undefined) inputReliefRings.value = layout.relief.rings;
+                    if (layout.relief.blur !== undefined && inputReliefBlur) {
+                        inputReliefBlur.value = layout.relief.blur;
+                        if (valReliefBlur) valReliefBlur.textContent = `${layout.relief.blur}px`;
+                    }
+                }
+
                 if (layout.hanger) {
                     if (layout.hanger.clearance !== undefined) inputHangerClearance.value = layout.hanger.clearance;
                     if (layout.hanger.baseThickness !== undefined) inputHangerBaseThickness.value = layout.hanger.baseThickness;
@@ -1255,6 +1437,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                             cell.enabled = savedCell.enabled;
                             cell.imageId = savedCell.imageId;
                             cell.cropRegion = savedCell.cropRegion;
+                            cell.groupId = savedCell.groupId;
+                            cell.groupShiftX = savedCell.groupShiftX;
+                            cell.groupShiftY = savedCell.groupShiftY;
+                            cell.groupZoom = savedCell.groupZoom;
                         }
                     });
                 }
@@ -1262,6 +1448,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Aktualizuj widoczność
                 handleBedVerifyChange();
                 handleFrameConfigChange();
+                handleReliefConfigChange();
                 
                 if (layout.imageMode === 'single') {
                     singleImageWrapper.classList.remove('hidden');
@@ -1271,6 +1458,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else {
                 handleBedVerifyChange();
                 handleFrameConfigChange();
+                handleReliefConfigChange();
             }
 
             updateStaggerDropdownLabels();
@@ -1296,11 +1484,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             imageList.innerHTML = `<p class="empty-list-text">${i18n.t('no_images_loaded')}</p>`;
         }
         updateMainImageSelector();
-        if (planner.interactionMode === 'grid') {
-            document.getElementById('canvas-status-text').textContent = i18n.t('status_grid_mode');
-        } else {
-            document.getElementById('canvas-status-text').textContent = i18n.t('status_image_mode');
-        }
+        updateStatusText();
         updateHexDimensionLabels();
         const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
         if (activeTab === 'tab-instructions') {

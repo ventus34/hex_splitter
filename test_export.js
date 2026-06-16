@@ -26,7 +26,13 @@ global.document = {
                         strokeStyle: '',
                         lineWidth: 1,
                         globalCompositeOperation: '',
-                        setLineDash() {}
+                        setLineDash() {},
+                        clip() {},
+                        getImageData(x, y, w, h) {
+                            const data = new Uint8Array(w * h * 4);
+                            data.fill(255); // Fill with white
+                            return { data };
+                        }
                     };
                 },
                 toBlob(callback) {
@@ -104,6 +110,21 @@ const mockGridManager = {
 };
 
 const mockImageProcessor = {
+    getImage(id) {
+        return {
+            id,
+            name: "test_image.png",
+            width: 800,
+            height: 600,
+            zoom: 1.0
+        };
+    },
+    getRotatedCanvasOrImage(imageObj) {
+        return {
+            width: 800,
+            height: 600
+        };
+    },
     // Canvas mock dla eksportu (toBlob)
     createHexagonCanvas(cell, gridManager) {
         return {
@@ -141,6 +162,16 @@ async function runTest() {
     console.log("\n--- TEST 3: exportHexesZip() z formatem 'png' ---");
     mockGridManager.config.exportFormat = 'png';
     await exporter.exportHexesZip();
+
+    console.log("\n--- TEST 4: exportHexes3DStl() ---");
+    const options = {
+        reliefHeight: 2.0,
+        baseThickness: 1.2,
+        invert: false,
+        sectors: 60,
+        rings: 30
+    };
+    await exporter.exportHexes3DStl(options);
     
     console.log("\nTesty zakończone pomyślnie!");
 }

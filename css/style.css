@@ -768,7 +768,8 @@ body {
     display: none !important;
 }
 
-.frame-settings-sub {
+.frame-settings-sub,
+.relief-settings-sub {
     margin-top: 12px;
     padding-left: 12px;
     border-left: 2px solid var(--border);

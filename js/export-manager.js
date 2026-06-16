@@ -1,5 +1,6 @@
 import HexMath from './hex-math.js?v=1.0.3';
 import FrameGenerator from './frame-generator.js?v=1.0.3';
+import STLHexGenerator from './stl-hex-generator.js?v=1.0.3';
 import { i18n } from './i18n.js?v=1.0.3';
 
 class ExportManager {
@@ -155,6 +156,64 @@ class ExportManager {
         } catch (err) {
             console.error('Błąd generowania ramek STL:', err);
             alert(i18n.t('alert_frame_stl_error') + err.message);
+        }
+
+        this.showProgress(false);
+    }
+
+    /**
+     * Eksportuje reliefy 3D heksów jako pliki STL spakowane w ZIP
+     */
+    async exportHexes3DStl(options) {
+        const activeCells = this.gridManager.getActiveCells();
+        if (activeCells.length === 0) {
+            alert(i18n.t('alert_no_hexes'));
+            return;
+        }
+
+        const hasImages = activeCells.some(c => c.imageId !== null);
+        if (!hasImages) {
+            alert(i18n.t('alert_no_images'));
+            return;
+        }
+
+        this.showProgress(true, i18n.t('generating_3d_hex_stl'), 0);
+        const zip = new JSZip();
+        let processed = 0;
+
+        try {
+            for (const cell of activeCells) {
+                if (!cell.imageId) {
+                    processed++;
+                    continue;
+                }
+
+                const buffer = STLHexGenerator.generateHexSTL(
+                    cell,
+                    this.gridManager,
+                    this.imageProcessor,
+                    options
+                );
+
+                if (buffer) {
+                    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+                    zip.file(`hex_3d_${cell.label}.stl`, blob);
+                }
+
+                processed++;
+                const percent = (processed / activeCells.length) * 100;
+                this.showProgress(true, i18n.t('generating_3d_hex_stl'), percent);
+                
+                // Pozwól przeglądarce na odświeżenie wątku UI i GC
+                await new Promise(r => setTimeout(r, 10));
+            }
+
+            this.showProgress(true, i18n.t('compressing_zip'), 100);
+            const content = await zip.generateAsync({ type: 'blob' });
+            saveAs(content, `hexsplitter_heksy_3d_stl.zip`);
+        } catch (err) {
+            console.error('Błąd generowania heksów 3D STL:', err);
+            alert(i18n.t('alert_relief_stl_error') + err.message);
         }
 
         this.showProgress(false);
