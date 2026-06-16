@@ -595,7 +595,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const zoomVal = Math.round((activeImg.zoom || 1.0) * 100);
                 inputSingleImageZoom.value = zoomVal;
                 if (valSingleImageZoom) {
-                    valSingleImageZoom.textContent = `${zoomVal}%`;
+                    valSingleImageZoom.value = zoomVal;
                 }
             }
         } else {
@@ -631,32 +631,48 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveProjectState();
     });
 
-    // Zmiana skali powiększenia obrazu
-    if (inputSingleImageZoom) {
-        inputSingleImageZoom.addEventListener('input', async () => {
-            const val = parseInt(inputSingleImageZoom.value);
-            if (valSingleImageZoom) {
-                valSingleImageZoom.textContent = `${val}%`;
-            }
-            
-            // Synchronizacja w dół do obiektu obrazka i suwaka w bibliotece
-            if (imageProcessor.activeImageId) {
-                const activeImg = imageProcessor.getImage(imageProcessor.activeImageId);
-                if (activeImg) {
-                    activeImg.zoom = val / 100;
-                    await DBStore.updateZoom(activeImg.id, activeImg.zoom);
-                    
-                    // Znajdź suwak w UI i zaktualizuj
-                    const itemElement = imageList.querySelector(`.image-item[data-id="${activeImg.id}"]`);
-                    if (itemElement) {
-                        const itemSlider = itemElement.querySelector('.image-zoom-slider');
-                        if (itemSlider) itemSlider.value = val;
-                        const itemLabel = itemElement.querySelector('.image-item-control-row:nth-child(2) .control-label');
-                        if (itemLabel) itemLabel.textContent = `${i18n.t('image_zoom')} ${val}%`;
-                    }
+    // Zmiana skali powiększenia obrazu (funkcja synchronizująca suwak z polem liczbowym)
+    const handleSingleImageZoomChange = async (val) => {
+        let intVal = parseInt(val);
+        if (isNaN(intVal)) intVal = 100;
+        if (intVal < 100) intVal = 100;
+        if (intVal > 500) intVal = 500;
+
+        if (inputSingleImageZoom && parseInt(inputSingleImageZoom.value) !== intVal) {
+            inputSingleImageZoom.value = intVal;
+        }
+        if (valSingleImageZoom && parseInt(valSingleImageZoom.value) !== intVal) {
+            valSingleImageZoom.value = intVal;
+        }
+        
+        // Synchronizacja w dół do obiektu obrazka i suwaka w bibliotece
+        if (imageProcessor.activeImageId) {
+            const activeImg = imageProcessor.getImage(imageProcessor.activeImageId);
+            if (activeImg) {
+                activeImg.zoom = intVal / 100;
+                await DBStore.updateZoom(activeImg.id, activeImg.zoom);
+                
+                // Znajdź suwak i input w UI i zaktualizuj
+                const itemElement = imageList.querySelector(`.image-item[data-id="${activeImg.id}"]`);
+                if (itemElement) {
+                    const itemSlider = itemElement.querySelector('.image-zoom-slider');
+                    if (itemSlider) itemSlider.value = intVal;
+                    const itemNumInput = itemElement.querySelector('.zoom-number-input');
+                    if (itemNumInput) itemNumInput.value = intVal;
                 }
             }
-            handleGridConfigChange();
+        }
+        handleGridConfigChange();
+    };
+
+    if (inputSingleImageZoom) {
+        inputSingleImageZoom.addEventListener('input', () => {
+            handleSingleImageZoomChange(inputSingleImageZoom.value);
+        });
+    }
+    if (valSingleImageZoom) {
+        valSingleImageZoom.addEventListener('input', () => {
+            handleSingleImageZoomChange(valSingleImageZoom.value);
         });
     }
 
@@ -727,7 +743,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveProjectState();
     }
 
-    // Dodanie elementu grafiki do listy
     function addDraggableImageToUI(imageObj) {
         const emptyText = imageList.querySelector('.empty-list-text');
         if (emptyText) emptyText.remove();
@@ -737,33 +752,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         item.draggable = true;
         item.dataset.id = imageObj.id;
 
-        const mainRow = document.createElement('div');
-        mainRow.className = 'image-item-main';
+        // Container na podgląd obrazu oraz przycisk usuwania
+        const previewContainer = document.createElement('div');
+        previewContainer.className = 'image-preview-container';
 
         const img = document.createElement('img');
         img.src = imageObj.src;
-        mainRow.appendChild(img);
-
-        const details = document.createElement('div');
-        details.className = 'image-details';
-        
-        const name = document.createElement('span');
-        name.className = 'image-name';
-        name.textContent = imageObj.name;
-        details.appendChild(name);
-
-        const res = document.createElement('span');
-        res.className = 'image-resolution';
-        
-        const updateResolutionText = () => {
-            const displayW = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
-            const displayH = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.height : imageObj.height;
-            res.textContent = `${displayW}x${displayH} px`;
-        };
-        updateResolutionText();
-        details.appendChild(res);
-
-        mainRow.appendChild(details);
+        previewContainer.appendChild(img);
 
         // Przycisk usuwania
         const btnRemove = document.createElement('button');
@@ -801,23 +796,64 @@ document.addEventListener('DOMContentLoaded', async () => {
             preview.scheduleRender();
             saveProjectState();
         });
-        mainRow.appendChild(btnRemove);
-        item.appendChild(mainRow);
+        previewContainer.appendChild(btnRemove);
+        item.appendChild(previewContainer);
+
+        // Szczegóły obrazu (nazwa, rozdzielczość)
+        const details = document.createElement('div');
+        details.className = 'image-details';
+        
+        const name = document.createElement('span');
+        name.className = 'image-name';
+        name.textContent = imageObj.name;
+        details.appendChild(name);
+
+        const res = document.createElement('span');
+        res.className = 'image-resolution';
+        
+        const updateResolutionText = () => {
+            const displayW = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
+            const displayH = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.height : imageObj.height;
+            res.textContent = `${displayW}x${displayH} px`;
+        };
+        updateResolutionText();
+        details.appendChild(res);
+        item.appendChild(details);
 
         // Kontener suwaków rotacji i zoomu
         const control = document.createElement('div');
         control.className = 'image-item-control';
 
-        // 1. Rząd rotacji
+        // 1. Grupa rotacji
         const rotRow = document.createElement('div');
-        rotRow.className = 'image-item-control-row';
+        rotRow.className = 'image-item-control-row-container';
+
+        const rotHeader = document.createElement('div');
+        rotHeader.className = 'image-item-control-header';
 
         const rotLabel = document.createElement('span');
         rotLabel.className = 'control-label';
-        const updateRotLabel = (deg) => {
-            rotLabel.textContent = `${i18n.t('image_rotation')} ${deg}°`;
-        };
-        updateRotLabel(imageObj.rotation || 0);
+        rotLabel.textContent = i18n.t('image_rotation');
+
+        const rotInputContainer = document.createElement('div');
+        rotInputContainer.className = 'input-sync-container';
+
+        const rotNumberInput = document.createElement('input');
+        rotNumberInput.type = 'number';
+        rotNumberInput.className = 'control-number-input rotation-number-input';
+        rotNumberInput.min = '0';
+        rotNumberInput.max = '360';
+        rotNumberInput.value = imageObj.rotation || 0;
+
+        const rotSuffix = document.createElement('span');
+        rotSuffix.className = 'unit-suffix';
+        rotSuffix.textContent = '°';
+
+        rotInputContainer.appendChild(rotNumberInput);
+        rotInputContainer.appendChild(rotSuffix);
+        rotHeader.appendChild(rotLabel);
+        rotHeader.appendChild(rotInputContainer);
+        rotRow.appendChild(rotHeader);
 
         const rotSlider = document.createElement('input');
         rotSlider.type = 'range';
@@ -826,12 +862,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         rotSlider.max = '360';
         rotSlider.step = '1';
         rotSlider.value = imageObj.rotation || 0;
+        rotRow.appendChild(rotSlider);
+        control.appendChild(rotRow);
 
-        rotSlider.addEventListener('mousedown', (e) => e.stopPropagation());
+        const syncRotation = async (val) => {
+            let angle = parseInt(val);
+            if (isNaN(angle)) angle = 0;
+            if (angle < 0) angle = 0;
+            if (angle > 360) angle = 360;
 
-        rotSlider.addEventListener('input', async () => {
-            const angle = parseInt(rotSlider.value);
-            updateRotLabel(angle);
+            if (parseInt(rotSlider.value) !== angle) rotSlider.value = angle;
+            if (parseInt(rotNumberInput.value) !== angle) rotNumberInput.value = angle;
+
             imageProcessor.rotateImage(imageObj.id, angle);
             await DBStore.updateRotation(imageObj.id, angle);
             updateResolutionText();
@@ -873,22 +915,41 @@ document.addEventListener('DOMContentLoaded', async () => {
             planner.scheduleRender();
             preview.scheduleRender();
             saveProjectState();
-        });
+        };
 
-        rotRow.appendChild(rotLabel);
-        rotRow.appendChild(rotSlider);
-        control.appendChild(rotRow);
+        rotSlider.addEventListener('input', () => syncRotation(rotSlider.value));
+        rotNumberInput.addEventListener('input', () => syncRotation(rotNumberInput.value));
 
-        // 2. Rząd zoomu
+        // 2. Grupa zoomu
         const zoomRow = document.createElement('div');
-        zoomRow.className = 'image-item-control-row';
+        zoomRow.className = 'image-item-control-row-container';
+
+        const zoomHeader = document.createElement('div');
+        zoomHeader.className = 'image-item-control-header';
 
         const zoomLabel = document.createElement('span');
         zoomLabel.className = 'control-label';
-        const updateZoomLabel = (val) => {
-            zoomLabel.textContent = `${i18n.t('image_zoom')} ${val}%`;
-        };
-        updateZoomLabel(Math.round((imageObj.zoom || 1.0) * 100));
+        zoomLabel.textContent = i18n.t('image_zoom');
+
+        const zoomInputContainer = document.createElement('div');
+        zoomInputContainer.className = 'input-sync-container';
+
+        const zoomNumberInput = document.createElement('input');
+        zoomNumberInput.type = 'number';
+        zoomNumberInput.className = 'control-number-input zoom-number-input';
+        zoomNumberInput.min = '100';
+        zoomNumberInput.max = '500';
+        zoomNumberInput.value = Math.round((imageObj.zoom || 1.0) * 100);
+
+        const zoomSuffix = document.createElement('span');
+        zoomSuffix.className = 'unit-suffix';
+        zoomSuffix.textContent = '%';
+
+        zoomInputContainer.appendChild(zoomNumberInput);
+        zoomInputContainer.appendChild(zoomSuffix);
+        zoomHeader.appendChild(zoomLabel);
+        zoomHeader.appendChild(zoomInputContainer);
+        zoomRow.appendChild(zoomHeader);
 
         const zoomSlider = document.createElement('input');
         zoomSlider.type = 'range';
@@ -897,23 +958,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         zoomSlider.max = '500';
         zoomSlider.step = '1';
         zoomSlider.value = Math.round((imageObj.zoom || 1.0) * 100);
+        zoomRow.appendChild(zoomSlider);
+        control.appendChild(zoomRow);
 
-        zoomSlider.addEventListener('mousedown', (e) => e.stopPropagation());
+        const syncZoom = async (val) => {
+            let intVal = parseInt(val);
+            if (isNaN(intVal)) intVal = 100;
+            if (intVal < 100) intVal = 100;
+            if (intVal > 500) intVal = 500;
 
-        zoomSlider.addEventListener('input', async () => {
-            const val = parseInt(zoomSlider.value);
-            updateZoomLabel(val);
-            imageObj.zoom = val / 100;
+            if (parseInt(zoomSlider.value) !== intVal) zoomSlider.value = intVal;
+            if (parseInt(zoomNumberInput.value) !== intVal) zoomNumberInput.value = intVal;
+
+            imageObj.zoom = intVal / 100;
             await DBStore.updateZoom(imageObj.id, imageObj.zoom);
 
             // Synchronizacja z globalnym suwakiem w panelu bocznym
-            // Synchronizacja z globalnym suwakiem w panelu bocznym
             if (getActiveImageMode() === 'single' && imageProcessor.activeImageId === imageObj.id) {
                 if (inputSingleImageZoom) {
-                    inputSingleImageZoom.value = val;
+                    inputSingleImageZoom.value = intVal;
                 }
                 if (valSingleImageZoom) {
-                    valSingleImageZoom.textContent = `${val}%`;
+                    valSingleImageZoom.value = intVal;
                 }
                 imageProcessor.recalculateSingleImageMapping(gridManager);
             } else if (getActiveImageMode() === 'multi') {
@@ -949,13 +1015,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             planner.scheduleRender();
             preview.scheduleRender();
             saveProjectState();
-        });
+        };
 
-        zoomRow.appendChild(zoomLabel);
-        zoomRow.appendChild(zoomSlider);
-        control.appendChild(zoomRow);
+        zoomSlider.addEventListener('input', () => syncZoom(zoomSlider.value));
+        zoomNumberInput.addEventListener('input', () => syncZoom(zoomNumberInput.value));
 
-        // Zapobiegaj Drag&Drop przy interakcji z suwakami
+        // Zapobiegaj Drag&Drop przy interakcji z suwakami i polami tekstowymi
         control.addEventListener('mouseenter', () => {
             item.setAttribute('draggable', 'false');
         });
@@ -1331,7 +1396,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 inputSingleImageZoom.value = 100;
             }
             if (valSingleImageZoom) {
-                valSingleImageZoom.textContent = '100%';
+                valSingleImageZoom.value = 100;
             }
 
 
@@ -1525,7 +1590,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         inputSingleImageZoom.value = Math.round((layout.grid.singleImageScale || 1.0) * 100);
                     }
                     if (valSingleImageZoom) {
-                        valSingleImageZoom.textContent = `${Math.round((layout.grid.singleImageScale || 1.0) * 100)}%`;
+                        valSingleImageZoom.value = Math.round((layout.grid.singleImageScale || 1.0) * 100);
                     }
                 }
 

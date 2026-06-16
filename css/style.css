@@ -551,29 +551,60 @@ body {
     opacity: 0.5;
 }
 
-.image-item img {
-    width: 56px;
-    height: 56px;
-    object-fit: cover;
-    border-radius: 4px;
-    background-color: #000;
-}
-
-.image-item-main {
+.image-preview-container {
+    position: relative;
+    width: 100%;
+    height: 140px;
+    background-color: #121620;
+    border-radius: 6px;
+    overflow: hidden;
     display: flex;
     align-items: center;
-    gap: 10px;
+    justify-content: center;
+}
+
+.image-preview-container img {
     width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background-image: repeating-conic-gradient(#1e2433 0% 25%, #121620 0% 50%);
+    background-position: 0 0, 10px 10px;
+    background-size: 20px 20px;
+}
+
+.image-preview-container .btn-remove-image {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background-color: rgba(18, 22, 32, 0.85);
+    backdrop-filter: blur(4px);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.image-preview-container .btn-remove-image:hover {
+    color: var(--danger);
+    background-color: rgba(255, 23, 68, 0.2);
+    border-color: var(--danger);
 }
 
 .image-details {
-    flex: 1;
-    min-width: 0;
+    padding: 4px 2px 0 2px;
 }
 
 .image-name {
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     font-weight: 600;
+    color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -581,23 +612,10 @@ body {
 }
 
 .image-resolution {
-    font-size: 0.65rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
-}
-
-.btn-remove-image {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
-    transition: color 0.2s, background-color 0.2s;
-}
-
-.btn-remove-image:hover {
-    color: var(--danger);
-    background-color: rgba(255, 23, 68, 0.1);
+    margin-top: 2px;
+    display: block;
 }
 
 .image-item-control {
@@ -605,28 +623,81 @@ body {
     flex-direction: column;
     gap: 8px;
     width: 100%;
-    margin-top: 4px;
-    padding-top: 6px;
-    border-top: 1px dashed var(--border);
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
 }
 
-.image-item-control-row {
+.image-item-control-row-container {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    gap: 4px;
     width: 100%;
 }
 
-.image-item-control-row .control-label {
-    font-size: 0.7rem;
-    color: var(--text-secondary);
-    min-width: 80px;
-    white-space: nowrap;
+.image-item-control-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
 }
 
-.image-item-control-row .form-range {
-    flex: 1;
+.image-item-control-header .control-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.form-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 6px;
+}
+
+.form-group-header label {
+    margin-bottom: 0 !important;
+}
+
+.input-sync-container {
+    display: flex;
+    align-items: center;
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    height: 24px;
+}
+
+.control-number-input {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    font-weight: 600;
+    width: 32px;
+    text-align: right;
+    padding: 0;
+    outline: none;
+}
+
+.control-number-input::-webkit-outer-spin-button,
+.control-number-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
     margin: 0;
+}
+
+.control-number-input {
+    -moz-appearance: textfield;
+}
+
+.unit-suffix {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-left: 2px;
+    user-select: none;
 }
 
 /* Buttons */

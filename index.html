@@ -118,7 +118,13 @@
                             <option value="" data-i18n="select_image_placeholder">Select image...</option>
                         </select>
                         <div id="single-image-zoom-group" class="form-group mt-3 hidden">
-                            <label for="single-image-zoom"><span data-i18n="image_zoom">Image zoom:</span> <span id="val-single-image-zoom">100%</span></label>
+                            <div class="form-group-header">
+                                <label for="single-image-zoom" data-i18n="image_zoom">Image zoom:</label>
+                                <div class="input-sync-container">
+                                    <input type="number" id="val-single-image-zoom" class="control-number-input" min="100" max="500" value="100">
+                                    <span class="unit-suffix">%</span>
+                                </div>
+                            </div>
                             <input type="range" id="single-image-zoom" class="form-range" min="100" max="500" step="1" value="100">
                         </div>
                     </div>
