@@ -522,6 +522,23 @@ body {
     padding-right: 4px;
 }
 
+.left-panel {
+    overflow-y: hidden;
+}
+
+.left-panel .panel-section:first-of-type {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.left-panel .image-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+}
+
 .empty-list-text {
     font-size: 0.75rem;
     color: var(--text-muted);
