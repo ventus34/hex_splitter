@@ -10,9 +10,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- CSS -->
     <link rel="stylesheet" href="css/style.css">
-    <!-- JSZip & FileSaver.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <!-- Local, version-controlled dependencies -->
+    <script src="vendor/jszip.min.js"></script>
+    <script src="js/download.js"></script>
 </head>
 <body>
     <div id="app">
@@ -39,6 +39,8 @@
                     <option value="en" selected>EN</option>
                     <option value="pl">PL</option>
                 </select>
+                <button id="btn-undo" class="btn btn-secondary btn-sm" disabled data-i18n-title="undo_title" data-i18n-aria-label="undo_title" title="Undo (Ctrl/Cmd+Z)" aria-label="Undo">↶</button>
+                <button id="btn-redo" class="btn btn-secondary btn-sm" disabled data-i18n-title="redo_title" data-i18n-aria-label="redo_title" title="Redo (Ctrl/Cmd+Shift+Z)" aria-label="Redo">↷</button>
                 <button id="btn-save-project" class="btn btn-secondary btn-sm" style="margin-right: 8px;">
                     <svg viewBox="0 0 24 24" class="icon-inline" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                     <span data-i18n="btn_save_project">Save Project</span>
@@ -54,6 +56,11 @@
                 </button>
             </div>
         </header>
+
+        <div id="project-session-banner" class="project-session-banner hidden" role="status" aria-live="polite">
+            <span id="project-session-message"></span>
+            <button id="btn-take-over-project" class="btn btn-secondary btn-sm" data-i18n="take_over_project">Edit in this tab</button>
+        </div>
 
         <!-- Main Workspace Area -->
         <main class="app-body">
@@ -176,7 +183,8 @@
 
                 <div class="canvas-wrapper" id="canvas-wrapper">
                     <!-- The Interactive Canvas -->
-                    <canvas id="planner-canvas"></canvas>
+                    <canvas id="planner-canvas" tabindex="0" role="application" aria-label="Wall planner grid" aria-describedby="planner-live-status"></canvas>
+                    <span id="planner-live-status" class="visually-hidden" aria-live="polite">Use arrow keys to select a cell and Space or Enter to toggle it.</span>
                 </div>
             </section>
 
@@ -593,15 +601,16 @@
                         <span data-i18n="btn_export_3d_hexes_stl">Download 3D Hexes (.ZIP STL)</span>
                     </button>
 
-                    <div class="export-progress-bar hidden" id="export-progress-wrapper">
-                        <div class="progress-track">
-                            <div class="progress-fill" id="export-progress-fill" style="width: 0%;"></div>
-                        </div>
-                        <span id="export-progress-text" data-i18n="preparing_files">Preparing files... 0%</span>
-                    </div>
                 </section>
             </aside>
         </main>
+        <div class="export-progress-bar hidden" id="export-progress-wrapper" role="status" aria-live="polite">
+            <div class="progress-track">
+                <div class="progress-fill" id="export-progress-fill" style="width: 0%;"></div>
+            </div>
+            <span id="export-progress-text" data-i18n="preparing_files">Preparing files... 0%</span>
+            <button id="btn-cancel-export" class="btn btn-secondary btn-sm btn-block mt-2" type="button" data-i18n="cancel_export">Cancel export</button>
+        </div>
     </div>
     
     <!-- Scripts modules -->

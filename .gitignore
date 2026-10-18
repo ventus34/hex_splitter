@@ -1,5 +1,26 @@
 # Node modules
 node_modules/
+npm-debug.log*
+test-results/
+playwright-report/
+blob-report/
+coverage/
+*.log
+
+# Local audit materials and generated exports
+/audits/
+/scripts/benchmark.mjs
+*.hexproj
+*.stl
+*.zip
+
+# Local environment and agent configuration
+.env
+.env.*
+!.env.example
+/.codex/
+/.agents/
+/.aws/
 
 # OS/System files
 .DS_Store

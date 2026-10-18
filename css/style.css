@@ -194,6 +194,29 @@ body {
     gap: 8px;
 }
 
+.project-session-banner {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 24px;
+    border-bottom: 1px solid #b58636;
+    background: #302817;
+    color: #ffe0a6;
+    font-size: 0.85rem;
+}
+
+#btn-undo, #btn-redo {
+    min-width: 32px;
+    font-size: 20px;
+    line-height: 1;
+}
+
+@media print {
+    .project-session-banner { display: none !important; }
+}
+
 .toolbar-divider {
     width: 1px;
     height: 20px;
@@ -224,6 +247,23 @@ body {
     width: 100%;
     height: 100%;
     display: block;
+}
+
+#planner-canvas,
+#preview-canvas {
+    touch-action: none;
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 /* Inputs & Form Elements */
@@ -822,7 +862,12 @@ body {
 
 /* Export Progress Bar */
 .export-progress-bar {
-    margin-top: 16px;
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    width: min(360px, calc(100vw - 48px));
+    z-index: 100;
+    box-shadow: 0 8px 32px #0008;
     padding: 12px;
     background-color: var(--bg-tertiary);
     border-radius: var(--radius-sm);
@@ -1004,10 +1049,12 @@ body {
     overflow: hidden;
 }
 
-.inst-hex-preview-cell img {
+.inst-hex-preview-cell img,
+.inst-hex-preview-cell canvas {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+    display: block;
 }
 
 .inst-code-badge {
@@ -1019,6 +1066,168 @@ body {
     font-weight: bold;
     font-size: 0.85rem;
     display: inline-block;
+}
+
+/* Small screens keep a useful canvas and let users scroll through the controls. */
+@media (max-width: 900px) {
+    body,
+    #app {
+        height: 100dvh;
+    }
+
+    .app-header {
+        height: auto;
+        min-height: 0;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 8px 12px;
+    }
+
+    .logo-area {
+        gap: 8px;
+    }
+
+    .icon-logo {
+        width: 26px;
+        height: 26px;
+    }
+
+    .logo-text span {
+        display: none;
+    }
+
+    .app-tabs {
+        order: 3;
+        flex: 1 0 100%;
+        overflow-x: auto;
+    }
+
+    .tab-btn {
+        flex: 1 0 auto;
+        padding: 7px 10px;
+        white-space: nowrap;
+    }
+
+    .project-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 6px;
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .project-actions > * {
+        margin-right: 0 !important;
+    }
+
+    .project-actions .btn {
+        padding: 6px 8px;
+        font-size: 0.72rem;
+    }
+
+    .app-body {
+        flex-direction: column;
+        height: auto;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    .canvas-container {
+        order: 1;
+        flex: 0 0 54vh;
+        width: 100%;
+        min-width: 0;
+        min-height: 260px;
+    }
+
+    .left-panel {
+        order: 2;
+    }
+
+    .right-panel {
+        order: 3;
+    }
+
+    .panel {
+        width: 100%;
+        height: auto;
+        max-height: none;
+        flex: 0 0 auto;
+        overflow: visible;
+        border-left: 0;
+        border-right: 0;
+        border-top: 1px solid var(--border);
+    }
+
+    .panel-section {
+        padding: 16px;
+    }
+
+    .left-panel .panel-section:first-of-type {
+        flex: initial;
+        min-height: auto;
+    }
+
+    .left-panel .image-list {
+        max-height: 180px;
+    }
+
+    .canvas-toolbar {
+        height: auto;
+        min-height: 48px;
+        flex: 0 0 auto;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 6px 10px;
+        gap: 8px;
+    }
+
+    .canvas-toolbar > .toolbar-group,
+    .canvas-toolbar > label,
+    .canvas-toolbar > select {
+        flex: 0 0 auto;
+    }
+
+    .canvas-status {
+        display: none;
+    }
+
+    .instructions-container {
+        order: 1;
+        min-height: 0;
+        width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .app-header {
+        padding: 6px 8px;
+        gap: 6px;
+    }
+
+    .project-actions .btn {
+        padding: 5px 6px;
+    }
+
+    .project-actions .icon-inline {
+        display: none;
+    }
+
+    .canvas-container {
+        flex-basis: 52vh;
+        min-height: 240px;
+    }
+
+    .canvas-toolbar {
+        gap: 6px;
+    }
+
+    .toolbar-group {
+        gap: 5px;
+    }
 }
 
 /* Printing styles */
@@ -1034,7 +1243,7 @@ body {
         height: auto;
     }
     
-    .app-header, .panel, .canvas-toolbar, .instructions-actions {
+    .app-header, .panel, .canvas-toolbar, .instructions-actions, .export-progress-bar {
         display: none !important;
     }
     

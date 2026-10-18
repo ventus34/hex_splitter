@@ -48,12 +48,21 @@ const FrameGenerator = {
      * Oblicza wierzchołki wewnętrzne i zewnętrzne ramki w milimetrach (mm)
      */
     getFrameVerticesMm(cell, gridManager, widthMm, clearanceMm) {
-        const config = gridManager.config;
+        const config = gridManager?.config;
+        if (!config) return { innerVerticesMm: [], outerVerticesMm: [] };
         const hexSize = config.hexSize;
         const orientation = config.orientation;
         const stagger = config.stagger || 'left';
         const gap = config.gap;
         
+        if (!config || !Number.isFinite(hexSize) || hexSize <= 0 ||
+            !Number.isFinite(widthMm) || widthMm <= 0 ||
+            !Number.isFinite(clearanceMm) || clearanceMm < 0 ||
+            !Number.isFinite(gap) || gap < 0 ||
+            !['flat-top', 'pointy-top'].includes(orientation)) {
+            return { innerVerticesMm: [], outerVerticesMm: [] };
+        }
+
         const isDummy = !cell || cell.label === 'ramka' || cell.q === undefined;
         if (isDummy) {
             const innerHexSizeMm = hexSize + clearanceMm;
@@ -74,7 +83,8 @@ const FrameGenerator = {
                 rows: config.rows,
                 hexSize: innerHexSizeMm,
                 orientation,
-                gap
+                gap,
+                stagger
             };
             const clipRect = HexMath.getGridClipRect(clipConfig);
             const unclippedInner = HexMath.getHexVertices(posMm.x, posMm.y, innerHexSizeMm, orientation);
@@ -284,7 +294,9 @@ const FrameGenerator = {
     generateFrameSTL(cell, gridManager, type, widthMm, clearanceMm, heightMm, baseThicknessMm = 1.2) {
         const { innerVerticesMm, outerVerticesMm } = this.getFrameVerticesMm(cell, gridManager, widthMm, clearanceMm);
         
-        if (!outerVerticesMm || outerVerticesMm.length < 3) {
+        if (!outerVerticesMm || outerVerticesMm.length < 3 ||
+            !Number.isFinite(heightMm) || heightMm <= 0 ||
+            !Number.isFinite(baseThicknessMm) || baseThicknessMm <= 0) {
             return '';
         }
 
@@ -321,6 +333,7 @@ const FrameGenerator = {
         const n = localOuter.length;
         const H = heightMm;
         const B = Math.min(baseThicknessMm, H - 0.4); // Zabezpieczenie przed ujemną wysokością rantów
+        if (B <= 0) return '';
 
         const writer = new STLModel(`ramka_${cell ? cell.label : 'custom'}`);
 

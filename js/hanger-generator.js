@@ -154,16 +154,24 @@ const HangerGenerator = {
      * @returns {string} - Zawartość pliku STL (ASCII)
      */
     generateSTL(gridConfig, hangerConfig) {
-        const hexSize = gridConfig.hexSize || 100;
-        const gap = gridConfig.gap || 0;
+        const sourceGrid = gridConfig || {};
+        const sourceHanger = hangerConfig || {};
+        const hexSize = Number(sourceGrid.hexSize ?? 100);
+        const gap = Number(sourceGrid.gap ?? 0);
+        if (!Number.isFinite(hexSize) || hexSize <= 0 || !Number.isFinite(gap) || gap < 0) return '';
         
         // Parametry uchwytu z domyślnymi wartościami bezpieczeństwa
-        const clearance = parseFloat(hangerConfig.clearance !== undefined ? hangerConfig.clearance : 0.3);
-        const baseThickness = parseFloat(hangerConfig.baseThickness !== undefined ? hangerConfig.baseThickness : 1.2);
-        const ridgeHeight = parseFloat(hangerConfig.ridgeHeight !== undefined ? hangerConfig.ridgeHeight : 2.0);
+        const clearance = Number(sourceHanger.clearance ?? 0.3);
+        const baseThickness = Number(sourceHanger.baseThickness ?? 1.2);
+        const ridgeHeight = Number(sourceHanger.ridgeHeight ?? 2.0);
         
-        const configuredArmLength = parseFloat(hangerConfig.armLength !== undefined ? hangerConfig.armLength : 30);
-        const configuredArmWidth = parseFloat(hangerConfig.armWidth !== undefined ? hangerConfig.armWidth : 12);
+        const configuredArmLength = Number(sourceHanger.armLength ?? 30);
+        const configuredArmWidth = Number(sourceHanger.armWidth ?? 12);
+        if (!Number.isFinite(clearance) || clearance < 0 ||
+            !Number.isFinite(baseThickness) || baseThickness <= 0 ||
+            !Number.isFinite(ridgeHeight) || ridgeHeight < 0 ||
+            !Number.isFinite(configuredArmLength) || configuredArmLength <= 0 ||
+            !Number.isFinite(configuredArmWidth) || configuredArmWidth <= 0) return '';
         
         // Zabezpieczenie przed zbyt małymi heksami - ramiona nie mogą wykraczać poza obrys heksa
         const maxArmLength = hexSize * 0.95;

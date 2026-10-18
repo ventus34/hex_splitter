@@ -1,4 +1,5 @@
 import HexMath from './hex-math.js';
+import { assertImageDimensions, PROJECT_LIMITS } from './project-validation.js';
 
 class ImageProcessor {
     constructor() {
@@ -14,17 +15,39 @@ class ImageProcessor {
      * Wczytuje grafikę z pliku i dodaje do biblioteki
      */
     async addImage(file) {
+        if (!file || file.size > PROJECT_LIMITS.maxImageBytes) {
+            throw new Error('Plik obrazu jest zbyt duży. Maksymalny rozmiar to 50 MiB.');
+        }
         return new Promise((resolve, reject) => {
             const img = new Image();
             const url = URL.createObjectURL(file);
+            let settled = false;
+            const timeout = setTimeout(() => {
+                settled = true;
+                img.onload = null;
+                img.onerror = null;
+                img.src = '';
+                URL.revokeObjectURL(url);
+                reject(new Error('Przekroczono czas wczytywania obrazu.'));
+            }, 30_000);
             img.onload = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeout);
+                try {
+                    assertImageDimensions(img.naturalWidth || img.width, img.naturalHeight || img.height);
+                } catch (error) {
+                    URL.revokeObjectURL(url);
+                    reject(error);
+                    return;
+                }
                 const id = 'img_' + Math.random().toString(36).substr(2, 9);
                 const imageObj = {
                     id,
                     name: file.name,
                     imgElement: img,
-                    width: img.width,
-                    height: img.height,
+                    width: img.naturalWidth || img.width,
+                    height: img.naturalHeight || img.height,
                     src: url
                 };
                 this.images.set(id, imageObj);
@@ -37,8 +60,11 @@ class ImageProcessor {
                 resolve(imageObj);
             };
             img.onerror = (err) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeout);
                 URL.revokeObjectURL(url);
-                reject(err);
+                reject(new Error(`Nie udało się odczytać obrazu${file.name ? ` „${file.name}”` : ''}.`, { cause: err }));
             };
             img.src = url;
         });
@@ -111,6 +137,9 @@ class ImageProcessor {
 
             const newWidth = Math.round(imageObj.width * cos + imageObj.height * sin);
             const newHeight = Math.round(imageObj.width * sin + imageObj.height * cos);
+            if (newWidth > 32768 || newHeight > 32768 || newWidth * newHeight > PROJECT_LIMITS.maxImagePixels) {
+                throw new Error('Obrócony obraz przekracza dozwolony rozmiar.');
+            }
 
             const canvas = document.createElement('canvas');
             canvas.width = newWidth;
@@ -218,6 +247,15 @@ class ImageProcessor {
             cell.imageId = imageId;
             cell.cropRegion = { x, y, w, h };
         });
+    }
+
+    /** Rebuild per-cell cover crops when grid geometry changes in multi-image mode. */
+    recalculateMultiImageMapping(gridManager) {
+        for (const cell of gridManager.getAllCells()) {
+            if (!cell.enabled || !cell.imageId) continue;
+            const imageObj = this.getImage(cell.imageId);
+            if (imageObj) this.calculateCellCoverCrop(cell, imageObj, gridManager);
+        }
     }
 
     /**

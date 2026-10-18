@@ -1,4 +1,5 @@
 import HexMath from './hex-math.js';
+import FrameGenerator from './frame-generator.js';
 
 class GridManager {
     constructor() {
@@ -213,6 +214,10 @@ class GridManager {
             });
         });
 
+        if (![minX, maxX, minY, maxY].every(Number.isFinite)) {
+            return { width: 0, height: 0, minX: 0, minY: 0, maxX: 0, maxY: 0 };
+        }
+
         const width = maxX - minX;
         const height = maxY - minY;
 
@@ -247,6 +252,10 @@ class GridManager {
             });
         });
 
+        if (![minX, maxX, minY, maxY].every(Number.isFinite)) {
+            return { width: 0, height: 0, minX: 0, minY: 0, maxX: 0, maxY: 0 };
+        }
+
         const width = maxX - minX;
         const height = maxY - minY;
 
@@ -264,7 +273,7 @@ class GridManager {
      * Sprawdza, czy pojedynczy heks (z uwzględnieniem ramki) mieści się na stole drukarki
      */
     checkBedSizeFit() {
-        const { hexSize, orientation, bedX, bedY, bedVerify, frameEnable, frameWidth, frameClearance } = this.config;
+        const { bedX, bedY, bedVerify, frameEnable, frameWidth, frameClearance } = this.config;
         
         if (!bedVerify) {
             for (const cell of this.cells.values()) {
@@ -273,22 +282,30 @@ class GridManager {
             return;
         }
 
-        // Zewnętrzny rozmiar heksa (circumradius)
-        let outerSize = hexSize;
-        if (frameEnable) {
-            outerSize = hexSize + frameClearance + frameWidth;
-        }
-
-        // Wymiary bounding boxa pojedynczego heksa
-        const dim = HexMath.getHexDimensions(outerSize, orientation);
-        const w = dim.width;
-        const h = dim.height;
-
-        // Pasuje jeśli mieści się wprost lub obrócony o 90 stopni
-        const fits = (w <= bedX && h <= bedY) || (h <= bedX && w <= bedY);
-
         for (const cell of this.cells.values()) {
-            cell.exceedsBedSize = !fits;
+            let vertices;
+            if (frameEnable) {
+                const frame = FrameGenerator.getFrameVerticesMm(cell, this, frameWidth, frameClearance);
+                vertices = frame.outerVerticesMm;
+            } else {
+                vertices = HexMath.getCellVertices(cell, this.config);
+            }
+
+            if (!vertices || vertices.length < 3 || ![bedX, bedY].every(value => Number.isFinite(value) && value > 0)) {
+                cell.exceedsBedSize = true;
+                continue;
+            }
+
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const vertex of vertices) {
+                minX = Math.min(minX, vertex.x);
+                maxX = Math.max(maxX, vertex.x);
+                minY = Math.min(minY, vertex.y);
+                maxY = Math.max(maxY, vertex.y);
+            }
+            const width = maxX - minX;
+            const height = maxY - minY;
+            cell.exceedsBedSize = !((width <= bedX && height <= bedY) || (height <= bedX && width <= bedY));
         }
     }
 }

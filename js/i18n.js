@@ -1,5 +1,22 @@
 const translations = {
     en: {
+        undo_title: "Undo layout change (Ctrl/Cmd+Z)",
+        redo_title: "Redo layout change (Ctrl/Cmd+Shift+Z)",
+        cancel_export: "Cancel export",
+        export_cancelled: "Export cancelled. The archive was not saved.",
+        writing_archive: "Writing archive...",
+        saving_project: "Saving project...",
+        archive_zip_limit: "This archive exceeds the ZIP32 size limit (below 4 GiB). Export fewer tiles.",
+        project_archive_limit: "The project exceeds the 250 MiB archive limit. Remove some images before saving a backup.",
+        take_over_project: "Edit in this tab",
+        project_read_only: "This project is being edited in another tab. You can view it or move editing here.",
+        project_session_loading: "Opening project…",
+        history_restore_failed: "The change could not be restored. Please try again.",
+        export_busy: "An export is already running. Wait for it to finish.",
+        export_missing_image: "A source image is missing. Assign it again before exporting.",
+        export_too_large: "This export exceeds the memory limit. Export fewer tiles or reduce DPI / relief resolution.",
+        export_empty_result: "No file could be generated for this tile.",
+        export_failed: "Export failed. The archive could not be saved.",
         app_title: "HexSplitter - Hexagonal Wall Planner",
         app_subtitle: "Hexagonal Wall Planner & Slicer",
         tab_planner: "Planning",
@@ -164,6 +181,23 @@ const translations = {
         alert_relief_stl_error: "An error occurred during 3D STL hex generation: "
     },
     pl: {
+        undo_title: "Cofnij zmianę układu (Ctrl/Cmd+Z)",
+        redo_title: "Ponów zmianę układu (Ctrl/Cmd+Shift+Z)",
+        cancel_export: "Anuluj eksport",
+        export_cancelled: "Eksport anulowany. Archiwum nie zostało zapisane.",
+        writing_archive: "Zapisywanie archiwum...",
+        saving_project: "Zapisywanie projektu...",
+        archive_zip_limit: "Archiwum przekracza limit ZIP32 (poniżej 4 GiB). Wyeksportuj mniej kafelków.",
+        project_archive_limit: "Projekt przekracza limit archiwum 250 MiB. Usuń część zdjęć przed zapisaniem kopii.",
+        take_over_project: "Edytuj w tej karcie",
+        project_read_only: "Projekt jest edytowany w innej karcie. Możesz go oglądać albo przenieść edycję tutaj.",
+        project_session_loading: "Otwieranie projektu…",
+        history_restore_failed: "Nie udało się przywrócić zmiany. Spróbuj ponownie.",
+        export_busy: "Eksport już trwa. Poczekaj na jego zakończenie.",
+        export_missing_image: "Brakuje obrazu źródłowego. Przypisz go ponownie przed eksportem.",
+        export_too_large: "Eksport przekracza limit pamięci. Wybierz mniej kafelków lub zmniejsz DPI / rozdzielczość reliefu.",
+        export_empty_result: "Nie udało się wygenerować pliku dla tego kafelka.",
+        export_failed: "Eksport nie powiódł się. Nie udało się zapisać archiwum.",
         app_title: "HexSplitter - Planer ścienny z heksów",
         app_subtitle: "Planer i slicer ścienny",
         tab_planner: "Planowanie",
@@ -377,9 +411,13 @@ class I18nManager {
             const key = el.dataset.i18nTitle;
             el.title = this.t(key);
         });
+        document.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
+            el.setAttribute('aria-label', this.t(el.dataset.i18nAriaLabel));
+        });
         
         // Update document title
         document.title = this.t('app_title');
+        document.documentElement.lang = this.locale;
     }
 }
 

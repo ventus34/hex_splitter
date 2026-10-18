@@ -29,6 +29,9 @@ class WallPlanner {
         this.lastMouseY = 0;
 
         this.renderRequested = false;
+        this.renderTransform = null;
+        this.selectedCellKey = null;
+        this.pendingTouch = null;
 
         this.initEvents();
     }
@@ -82,7 +85,7 @@ class WallPlanner {
      * Zamienia współrzędne ekranowe na mm
      */
     screenToWorld(screenX, screenY) {
-        const bbox = this.gridManager.getBoundingBoxMm();
+        const bbox = this.renderTransform?.bbox || this.gridManager.getBoundingBoxMm();
         const gridCenterX = bbox.minX + bbox.width / 2;
         const gridCenterY = bbox.minY + bbox.height / 2;
 
@@ -96,7 +99,7 @@ class WallPlanner {
      * Zamienia współrzędne mm na ekranowe
      */
     worldToScreen(worldX, worldY) {
-        const bbox = this.gridManager.getBoundingBoxMm();
+        const bbox = this.renderTransform?.bbox || this.gridManager.getBoundingBoxMm();
         const gridCenterX = bbox.minX + bbox.width / 2;
         const gridCenterY = bbox.minY + bbox.height / 2;
 
@@ -156,6 +159,88 @@ class WallPlanner {
         });
     }
 
+    getCellAtClientPoint(clientX, clientY) {
+        const rect = this.canvas.getBoundingClientRect();
+        const world = this.screenToWorld(clientX - rect.left, clientY - rect.top);
+        const hex = HexMath.pixelToAxial(
+            world.x,
+            world.y,
+            this.gridManager.config.hexSize,
+            this.gridManager.config.orientation,
+            this.gridManager.config.gap,
+            this.gridManager.config.stagger || 'left'
+        );
+        return this.gridManager.getCell(hex.q, hex.r);
+    }
+
+    toggleCellAtClientPoint(clientX, clientY) {
+        const cell = this.getCellAtClientPoint(clientX, clientY);
+        if (!cell) return;
+        this.toggleCell(cell);
+    }
+
+    toggleCell(cell) {
+        const oldGroupId = cell.groupId;
+        this.gridManager.toggleCell(cell.q, cell.r);
+        const imageMode = document.querySelector('input[name="image-mode"]:checked')?.value || 'single';
+        if (imageMode === 'single') {
+            this.imageProcessor.recalculateSingleImageMapping(this.gridManager);
+        } else if (oldGroupId) {
+            const remainingCells = this.gridManager.getAllCells().filter(c => c.enabled && c.groupId === oldGroupId);
+            if (remainingCells.length > 0) {
+                const firstCell = remainingCells[0];
+                this.imageProcessor.recalculateGroupImageMapping(
+                    this.gridManager,
+                    remainingCells,
+                    firstCell.imageId,
+                    firstCell.groupZoom || 1.0,
+                    firstCell.groupShiftX || 0,
+                    firstCell.groupShiftY || 0
+                );
+            }
+        }
+        this.selectedCellKey = `${cell.q},${cell.r}`;
+        this.hoveredCellKey = this.selectedCellKey;
+        this.scheduleRender();
+        this.canvas.dispatchEvent(new CustomEvent('gridchange'));
+        const status = document.getElementById('planner-live-status');
+        if (status) status.textContent = `${cell.label}: ${cell.enabled ? 'active' : 'inactive'}`;
+    }
+
+    handleCanvasKeydown(e) {
+        if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault();
+            if (this.interactionMode !== 'image') {
+                let cell = this.selectedCellKey
+                    ? this.gridManager.getCell(...this.selectedCellKey.split(',').map(Number))
+                    : null;
+                cell ||= this.gridManager.getAllCells()[0];
+                if (cell) this.toggleCell(cell);
+            }
+            return;
+        }
+
+        const directions = {
+            ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]
+        };
+        const [dc, dr] = directions[e.key] || [];
+        if (dc === undefined) return;
+        e.preventDefault();
+        const cells = this.gridManager.getAllCells();
+        const current = this.selectedCellKey
+            ? this.gridManager.getCell(...this.selectedCellKey.split(',').map(Number))
+            : cells[0];
+        if (!current) return;
+        const target = cells.find(cell => cell.col === current.col + dc && cell.row === current.row + dr);
+        if (target) {
+            this.selectedCellKey = `${target.q},${target.r}`;
+            this.hoveredCellKey = this.selectedCellKey;
+            this.scheduleRender();
+            const status = document.getElementById('planner-live-status');
+            if (status) status.textContent = `${target.label}: ${target.enabled ? 'active' : 'inactive'}`;
+        }
+    }
+
     /**
      * Inicjalizuje zdarzenia myszy, dotyku i drag-and-drop
      */
@@ -164,7 +249,15 @@ class WallPlanner {
         this.canvas.addEventListener('contextmenu', e => e.preventDefault());
 
         // Mousedown / Touchstart
-        this.canvas.addEventListener('mousedown', e => {
+        this.canvas.addEventListener('pointerdown', e => {
+            if (e.pointerType === 'touch') {
+                e.preventDefault();
+                this.canvas.setPointerCapture?.(e.pointerId);
+                if (this.interactionMode !== 'image') {
+                    this.pendingTouch = { x: e.clientX, y: e.clientY, mode: 'toggle' };
+                    return;
+                }
+            }
             if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey)) {
                 // Środkowy, prawy lub LPM z Shift = Przesuwanie (Pan)
                 this.isPanning = true;
@@ -220,42 +313,33 @@ class WallPlanner {
                         }
                     }
                 } else {
-                    // Tryb siatki
-                    if (cell) {
-                        const oldGroupId = cell.groupId;
-                        this.gridManager.toggleCell(hex.q, hex.r);
-                        
-                        // Po zmianie struktury, przelicz ponownie mapowanie (w trybie single-image)
-                        const imageMode = document.querySelector('input[name="image-mode"]:checked').value;
-                        if (imageMode === 'single') {
-                            this.imageProcessor.recalculateSingleImageMapping(this.gridManager);
-                        } else if (oldGroupId) {
-                            // Jeśli wyłączyliśmy komórkę i należała do grupy w trybie span, przelicz grupę
-                            const remainingCells = this.gridManager.getAllCells().filter(c => c.enabled && c.groupId === oldGroupId);
-                            if (remainingCells.length > 0) {
-                                const firstCell = remainingCells[0];
-                                this.imageProcessor.recalculateGroupImageMapping(
-                                    this.gridManager,
-                                    remainingCells,
-                                    firstCell.imageId,
-                                    firstCell.groupZoom || 1.0,
-                                    firstCell.groupShiftX || 0,
-                                    firstCell.groupShiftY || 0
-                                );
-                            }
-                        }
-                        
-                        this.scheduleRender();
-                        
-                        // Zdarzenie informujące o zmianie siatki
-                        this.canvas.dispatchEvent(new CustomEvent('gridchange'));
-                    }
+                    if (cell) this.toggleCell(cell);
+                }
+                if (e.pointerType === 'touch' && !this.isDraggingImage) {
+                    this.pendingTouch = { x: e.clientX, y: e.clientY, mode: 'pan' };
                 }
             }
         });
 
-        // Mousemove
-        this.canvas.addEventListener('mousemove', e => {
+        // Pointer movement handles mouse, pen and touch with the same coordinate path.
+        this.canvas.addEventListener('pointermove', e => {
+            if (this.pendingTouch) {
+                const dx = e.clientX - this.pendingTouch.x;
+                const dy = e.clientY - this.pendingTouch.y;
+                if (Math.hypot(dx, dy) > 8) {
+                    this.isPanning = true;
+                    this.startX = this.pendingTouch.x - this.panX;
+                    this.startY = this.pendingTouch.y - this.panY;
+                    this.pendingTouch = { ...this.pendingTouch, mode: 'pan' };
+                    this.canvas.style.cursor = 'grabbing';
+                }
+                if (this.isPanning) {
+                    this.panX = e.clientX - this.startX;
+                    this.panY = e.clientY - this.startY;
+                    this.scheduleRender();
+                }
+                return;
+            }
             const rect = this.canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
@@ -387,7 +471,11 @@ class WallPlanner {
         });
 
         // Mouseup
-        window.addEventListener('mouseup', () => {
+        window.addEventListener('pointerup', () => {
+            if (this.pendingTouch?.mode === 'toggle' && this.interactionMode !== 'image') {
+                this.toggleCellAtClientPoint(this.pendingTouch.x, this.pendingTouch.y);
+            }
+            this.pendingTouch = null;
             if (this.isPanning) {
                 this.isPanning = false;
                 this.canvas.style.cursor = 'default';
@@ -399,6 +487,15 @@ class WallPlanner {
                 this.canvas.style.cursor = this.interactionMode === 'image' ? 'grab' : 'default';
             }
         });
+        window.addEventListener('pointercancel', () => {
+            this.pendingTouch = null;
+            this.isPanning = false;
+            this.isDraggingImage = false;
+            this.draggedCell = null;
+            this.canvas.style.cursor = 'default';
+        });
+
+        this.canvas.addEventListener('keydown', e => this.handleCanvasKeydown(e));
 
         // Wheel (Zoom)
         this.canvas.addEventListener('wheel', e => {
@@ -517,6 +614,17 @@ class WallPlanner {
      * Główna funkcja renderująca
      */
     render() {
+        // getBoundingBoxMm walks every active cell. Snapshot it once per frame so every
+        // vertex projection in this render is constant-time and stays consistent.
+        this.renderTransform = { bbox: this.gridManager.getBoundingBoxMm() };
+        try {
+            this.renderFrame();
+        } finally {
+            this.renderTransform = null;
+        }
+    }
+
+    renderFrame() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
         // Narysuj tło (szara siatka pomocnicza w tle)
@@ -526,7 +634,7 @@ class WallPlanner {
         const imageMode = document.querySelector('input[name="image-mode"]:checked')?.value || 'single';
         const imageId = this.imageProcessor.activeImageId;
         const imageObj = imageId ? this.imageProcessor.getImage(imageId) : null;
-        const bbox = this.gridManager.getBoundingBoxMm();
+        const bbox = this.renderTransform.bbox;
 
         if (bbox.width > 0 && bbox.height > 0 && imageMode === 'single' && imageObj && this.interactionMode === 'image') {
             const imgWidth = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
