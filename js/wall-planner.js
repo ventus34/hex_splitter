@@ -22,7 +22,7 @@ class WallPlanner {
         this.draggedImageId = null;
 
         // Tryb interakcji (siatka / przesuwanie zdjęć)
-        this.interactionMode = 'grid'; // 'grid' | 'image'
+        this.interactionMode = 'grid'; // 'grid' | 'image' | 'groups'
         this.isDraggingImage = false;
         this.draggedCell = null;
         this.lastMouseX = 0;
@@ -208,9 +208,20 @@ class WallPlanner {
     }
 
     handleCanvasKeydown(e) {
+        if (e.key === 'Escape' && this.interactionMode === 'groups') {
+            e.preventDefault();
+            this.panelController?.resetSelection();
+            this.panelController?.refresh();
+            return;
+        }
         if (e.key === ' ' || e.key === 'Enter') {
             e.preventDefault();
-            if (this.interactionMode !== 'image') {
+            if (this.interactionMode === 'groups') {
+                const cell = this.selectedCellKey
+                    ? this.gridManager.getCell(...this.selectedCellKey.split(',').map(Number))
+                    : this.gridManager.getAllCells()[0];
+                if (cell) this.panelController?.selectCell(cell);
+            } else if (this.interactionMode !== 'image') {
                 let cell = this.selectedCellKey
                     ? this.gridManager.getCell(...this.selectedCellKey.split(',').map(Number))
                     : null;
@@ -254,7 +265,7 @@ class WallPlanner {
                 e.preventDefault();
                 this.canvas.setPointerCapture?.(e.pointerId);
                 if (this.interactionMode !== 'image') {
-                    this.pendingTouch = { x: e.clientX, y: e.clientY, mode: 'toggle' };
+                    this.pendingTouch = { x: e.clientX, y: e.clientY, mode: this.interactionMode === 'groups' ? 'group' : 'toggle' };
                     return;
                 }
             }
@@ -312,6 +323,8 @@ class WallPlanner {
                             this.canvas.style.cursor = 'grabbing';
                         }
                     }
+                } else if (this.interactionMode === 'groups') {
+                    if (cell) this.panelController?.selectCell(cell);
                 } else {
                     if (cell) this.toggleCell(cell);
                 }
@@ -474,6 +487,9 @@ class WallPlanner {
         window.addEventListener('pointerup', () => {
             if (this.pendingTouch?.mode === 'toggle' && this.interactionMode !== 'image') {
                 this.toggleCellAtClientPoint(this.pendingTouch.x, this.pendingTouch.y);
+            } else if (this.pendingTouch?.mode === 'group' && this.interactionMode === 'groups') {
+                const cell = this.getCellAtClientPoint(this.pendingTouch.x, this.pendingTouch.y);
+                if (cell) this.panelController?.selectCell(cell);
             }
             this.pendingTouch = null;
             if (this.isPanning) {
@@ -696,6 +712,8 @@ class WallPlanner {
                 this.drawCell(cell, hexSize, orientation, gap, hexDim);
             }
         });
+
+        this.panelController?.drawOverlay(this.ctx);
 
         // 3. Rysuj ramki/obwoluty dookoła jeśli są włączone i aktywny podgląd (opcjonalnie)
         // W trybie planowania pokazujemy tylko zarys heksów i ewentualnie szczelinę.

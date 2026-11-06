@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import JSZip from 'jszip';
 import GridManager from '../js/grid-manager.js';
 import ExportManager from '../js/export-manager.js';
+import { getPanelGeometry, getPanelRaster, panelFilename } from '../js/panel-export.js';
 import { i18n } from '../js/i18n.js';
 
 function environment(t, { failOn = -1, onRender, cells = 2 } = {}) {
@@ -376,4 +377,148 @@ test('3D relief export uses a dedicated worker and packages its transferred STL 
     assert.equal(workers[0].terminated, true);
     const archive = await JSZip.loadAsync(await env.downloads[0].blob.arrayBuffer());
     assert.deepEqual([...await archive.file('hex_3d_A1.stl').async('uint8array')], [1, 2, 3, 4]);
+});
+
+// Exercise the actual panel renderer and ZIP manager with a small Canvas test double;
+// browser tests verify the pixel data produced by a real canvas.
+function panelEnvironment(t, { onEncode } = {}) {
+    const env = environment(t, { cells: 5 });
+    const cells = env.grid.getAllCells();
+    env.grid.panelExport = {
+        gapMm: 0,
+        groups: [
+            { id: 'first', cells: cells.slice(0, 2).map(({ q, r }) => ({ q, r })) },
+            { id: 'second', cells: cells.slice(2, 4).map(({ q, r }) => ({ q, r })) }
+        ]
+    };
+    env.grid.config.exportFormat = 'jpg';
+    const canvases = [];
+    const encodedCanvases = [];
+    const drawCalls = [];
+    globalThis.document.createElement = tag => {
+        assert.equal(tag, 'canvas');
+        const context = {
+            save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {},
+            clip() {}, translate() { this.translated = true; }, fill() {}, fillRect() {}, clearRect() {},
+            drawImage(...args) { drawCalls.push({ args, translated: this.translated }); }
+        };
+        const canvas = {
+            width: 0, height: 0,
+            getContext(type) { assert.equal(type, '2d'); return context; },
+            toBlob(callback, type) {
+                assert.equal(type, 'image/png');
+                canvas.encodedWidth = canvas.width;
+                canvas.encodedHeight = canvas.height;
+                encodedCanvases.push(canvas);
+                const index = encodedCanvases.length;
+                if (onEncode) onEncode({ index, callback, env, canvas });
+                else callback(new Blob([`panel-${index}`], { type }));
+            }
+        };
+        canvases.push(canvas);
+        return canvas;
+    };
+    return { ...env, canvases, encodedCanvases, drawCalls };
+}
+
+test('panel ZIP uses one immutable snapshot for groups, spacing, crops and selected image sources', async t => {
+    const env = panelEnvironment(t, { onEncode({ index, callback, env: live }) {
+        if (index === 1) {
+            live.grid.config.dpi = 72;
+            live.grid.panelExport.gapMm = 50;
+            live.grid.panelExport.groups.splice(1);
+            for (const cell of live.grid.getAllCells()) cell.cropRegion.x = 999;
+            live.processor.images.clear();
+        }
+        callback(new Blob([`panel-${index}`], { type: 'image/png' }));
+    } });
+    env.grid.getAllCells()[4].imageId = 'ungrouped';
+    env.processor.images.set('ungrouped', { id: 'ungrouped', imgElement: { width: 100_000, height: 100_000 } });
+    const expectedPanels = env.grid.panelExport.groups.map(group => {
+        const geometry = getPanelGeometry(group, env.grid, env.grid.panelExport.gapMm);
+        return { name: panelFilename(geometry), ...getPanelRaster(geometry, env.grid) };
+    });
+
+    const result = await env.exporter.exportGroupsZip();
+
+    assert.equal(result.count, 2);
+    assert.equal(result.filename, 'hexsplitter_panels.zip');
+    assert.equal(env.bitmaps.length, 1, 'only grouped source images were snapshotted');
+    assert.equal(env.downloads.length, 1);
+    const archive = await JSZip.loadAsync(await env.downloads[0].blob.arrayBuffer());
+    const names = Object.keys(archive.files).filter(name => !archive.files[name].dir);
+    assert.equal(names.length, 2);
+    for (let i = 0; i < names.length; i++) {
+        assert.equal(names[i], expectedPanels[i].name, 'filename retains original spacing and labels');
+        assert.equal(await archive.file(names[i]).async('string'), `panel-${i + 1}`);
+        assert.equal(env.encodedCanvases[i].encodedWidth, expectedPanels[i].width, 'original DPI and spacing are retained');
+        assert.equal(env.encodedCanvases[i].encodedHeight, expectedPanels[i].height);
+    }
+    const cropCalls = env.drawCalls.filter(call => call.translated && call.args.length === 9);
+    assert.equal(cropCalls.length, 4, 'one source crop per grouped hex');
+    assert.ok(cropCalls.every(call => Math.abs(call.args[1]) < 100), 'original crops retained after live edits');
+    assert.ok(env.canvases.every(canvas => canvas.width === 0 && canvas.height === 0), 'output and scratch canvases are released');
+    assert.ok(env.bitmaps.every(bitmap => bitmap.closed));
+    assert.equal(env.alerts.length, 0);
+});
+
+test('panel preflight rejects missing images before rendering any group', async t => {
+    for (const missing of ['unassigned', 'missing-source']) {
+        await t.test(missing, async t => {
+            const env = panelEnvironment(t);
+            const member = env.grid.getAllCells()[2];
+            member.imageId = missing === 'unassigned' ? null : 'missing';
+            await env.exporter.exportGroupsZip();
+            assert.equal(env.canvases.length, 0);
+            assert.equal(env.downloads.length, 0);
+            assert.match(env.alerts[0], /source image is missing/i);
+            assert.equal(env.exporter.busy, false);
+            assert.ok(env.bitmaps.every(bitmap => bitmap.closed));
+        });
+    }
+});
+
+test('panel preflight rejects oversized output before rendering and releases its snapshot', async t => {
+    const env = panelEnvironment(t);
+    env.grid.config.hexSize = 500;
+    env.grid.config.dpi = 1200;
+    await env.exporter.exportGroupsZip();
+    assert.equal(env.canvases.length, 0);
+    assert.equal(env.downloads.length, 0);
+    assert.ok(env.alerts[0].includes(i18n.t('export_too_large')));
+    assert.ok(env.bitmaps.every(bitmap => bitmap.closed));
+    assert.equal(env.exporter.busy, false);
+});
+
+test('failure to encode a later panel aborts the ZIP and releases canvases', async t => {
+    const env = panelEnvironment(t, { onEncode({ index, callback }) {
+        callback(index === 2 ? null : new Blob(['png'], { type: 'image/png' }));
+    } });
+    await env.exporter.exportGroupsZip();
+    assert.equal(env.encodedCanvases.length, 2);
+    assert.equal(env.downloads.length, 0);
+    assert.match(env.alerts[0], /no file could be generated/i);
+    assert.ok(env.canvases.every(canvas => canvas.width === 0 && canvas.height === 0));
+    assert.ok(env.bitmaps.every(bitmap => bitmap.closed));
+    assert.equal(env.exporter.busy, false);
+});
+
+test('cancelling during panel encoding aborts ZIP and releases a late canvas result', async t => {
+    let releaseEncode, notifyStarted;
+    const started = new Promise(resolve => { notifyStarted = resolve; });
+    const env = panelEnvironment(t, { onEncode({ callback }) { releaseEncode = callback; notifyStarted(); } });
+    const exporting = env.exporter.exportGroupsZip();
+    await started;
+    assert.equal(env.exporter.cancel(), true);
+    await exporting;
+    assert.equal(env.downloads.length, 0);
+    assert.equal(env.exporter.busy, false);
+    assert.equal(env.alerts[0], i18n.t('export_cancelled'));
+    assert.ok(env.bitmaps.every(bitmap => bitmap.closed));
+    releaseEncode(new Blob(['late'], { type: 'image/png' }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(env.encodedCanvases[0].width, 0);
+    assert.equal(env.encodedCanvases[0].height, 0);
+    assert.ok(env.canvases.every(canvas => canvas.width === 0 && canvas.height === 0));
+    assert.equal(env.downloads.length, 0);
 });

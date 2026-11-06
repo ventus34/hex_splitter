@@ -1,5 +1,6 @@
 import HexMath from './hex-math.js';
 import FrameGenerator from './frame-generator.js';
+import { defaultPanelExport } from './panel-groups.js';
 
 class GridManager {
     constructor() {
@@ -26,6 +27,7 @@ class GridManager {
         // Mapa przechowująca stan komórek siatki.
         // Klucz: "q,r", Wartość: CellState
         this.cells = new Map();
+        this.panelExport = defaultPanelExport();
     }
 
     /**

@@ -6,6 +6,8 @@ import { openArchiveOutput } from './archive-output.js?v=1.0.3';
 import ZipWriter from './zip-writer.js?v=1.0.3';
 import { i18n } from './i18n.js?v=1.0.3';
 import { parseBoundedNumber } from './project-validation.js';
+import { validatePanelExport, resolveGroupCells } from './panel-groups.js';
+import { getPanelGeometry, getPanelRaster, panelFilename, renderPanelCanvas } from './panel-export.js';
 
 const MAX_EXPORT_BYTES = 256 * 1024 * 1024;
 const MAX_CANVAS_PIXELS = 16 * 1024 * 1024;
@@ -98,10 +100,11 @@ class ExportManager {
         return true;
     }
 
-    async createSnapshot(withImages, signal) {
+    async createSnapshot(withImages, signal, { selectCells } = {}) {
         throwIfAborted(signal);
         const grid = Object.assign(Object.create(Object.getPrototypeOf(this.gridManager)), this.gridManager, {
             config: structuredClone(this.gridManager.config),
+            panelExport: structuredClone(this.gridManager.panelExport),
             cells: new Map(this.gridManager.getAllCells().map(cell => [`${cell.q},${cell.r}`, structuredClone(cell)]))
         });
         const images = new Map();
@@ -109,7 +112,8 @@ class ExportManager {
         const sources = [];
         if (withImages) {
             let sourcePixels = 0;
-            for (const id of new Set(grid.getActiveCells().map(cell => cell.imageId).filter(Boolean))) {
+            const sourceCells = selectCells ? selectCells(grid) : grid.getActiveCells();
+            for (const id of new Set(sourceCells.map(cell => cell.imageId).filter(Boolean))) {
                 const image = this.imageProcessor.getImage(id);
                 if (!image) throw new Error(i18n.t('export_missing_image'));
                 const source = this.imageProcessor.getRotatedCanvasOrImage(image);
@@ -334,6 +338,45 @@ class ExportManager {
                 } finally {
                     canvas.width = 0; canvas.height = 0;
                     if (output !== canvas) { output.width = 0; output.height = 0; }
+                }
+            }
+        });
+    }
+
+    async exportGroupsZip() {
+        if (!this.gridManager.panelExport?.groups.length) {
+            alert(i18n.t('alert_no_groups'));
+            return;
+        }
+        return this.runExport({
+            filename: 'hexsplitter_panels.zip', progress: 'generating_panel_images',
+            captureSnapshot: signal => this.createSnapshot(true, signal, {
+                selectCells: grid => {
+                    try { validatePanelExport(grid.panelExport, grid.config, grid.getAllCells()); }
+                    catch { throw new Error(i18n.t('export_panel_invalid')); }
+                    return grid.panelExport.groups.flatMap(group => resolveGroupCells(group, grid));
+                }
+            }),
+            selectEntries: snapshot => snapshot.grid.panelExport.groups,
+            preflight: (groups, grid) => {
+                for (const group of groups) {
+                    const cells = resolveGroupCells(group, grid);
+                    if (cells.some(cell => !cell.imageId)) throw new Error(i18n.t('export_missing_image'));
+                    try { getPanelRaster(getPanelGeometry(group, grid, grid.panelExport.gapMm), grid); }
+                    catch (error) {
+                        throw new Error(i18n.t(error.code === 'PANEL_EXPORT_TOO_LARGE' ? 'export_too_large' : 'export_panel_invalid'));
+                    }
+                }
+            },
+            generate: async (group, grid, processor) => {
+                const geometry = getPanelGeometry(group, grid, grid.panelExport.gapMm);
+                const canvas = renderPanelCanvas(group, grid, processor, grid.panelExport.gapMm);
+                try {
+                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                    return { name: panelFilename(geometry), blob };
+                } finally {
+                    canvas.width = 0;
+                    canvas.height = 0;
                 }
             }
         });

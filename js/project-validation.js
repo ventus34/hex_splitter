@@ -1,3 +1,5 @@
+import { validatePanelExport } from './panel-groups.js';
+
 export const PROJECT_SCHEMA_VERSION = 2;
 export const PROJECT_LAYOUT_RECORD_ID = '__hexsplitter_project_layout__';
 export const PROJECT_LIMITS = Object.freeze({
@@ -170,6 +172,7 @@ export function validateProjectLayout(layout) {
     if (layout.previewOptions?.background !== undefined) {
         requireCondition(['transparent', 'dark', 'light', 'wall'].includes(layout.previewOptions.background), 'Nieznane tło podglądu w projekcie.');
     }
+    layout.panelExport = validatePanelExport(layout.panelExport, grid, cells);
     return layout;
 }
 

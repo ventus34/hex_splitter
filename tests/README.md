@@ -26,6 +26,11 @@ dialog or write to a user-selected disk location.
 Pure unit tests also cover bounded history, export Worker protocols, deterministic AMS quantization, mesh geometry,
 project validation, and static-server boundaries.
 
+Panel tests cover independent HueForge groups, both hex orientations/staggers, physical gaps and bounds,
+half-hex shapes, DPI rounding, native crop density, project compatibility, and immutable ZIP snapshots.
+Browser checks inspect actual PNG pixels for source crops, rotation, alpha, transparent gaps, and shared-edge
+coverage, and exercise grouping, undo/redo, project round trips, keyboard and mobile touch selection.
+
 Browser tests run against a temporary localhost server in isolated contexts. `tests/helpers/poll.js` contains
 `waitForAsyncPageCondition` for predicates that read IndexedDB: Playwright 1.62.1's `page.waitForFunction` treats an
 async predicate's returned Promise as truthy rather than waiting for its resolution, so that API does not reliably

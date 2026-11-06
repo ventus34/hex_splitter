@@ -186,12 +186,14 @@ body {
     padding: 0 16px;
     gap: 12px;
     z-index: 5;
+    overflow-x: auto;
 }
 
 .toolbar-group {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
 }
 
 .project-session-banner {
@@ -230,6 +232,10 @@ body {
 .canvas-status {
     font-size: 0.8rem;
     color: var(--text-secondary);
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 /* Canvas Wrapper */
@@ -1332,6 +1338,49 @@ body {
 
 #tool-mode-group .btn .icon-inline {
     margin-right: 4px;
+}
+
+.panel-selection-actions,
+.panel-group-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.panel-group-message:empty {
+    display: none;
+}
+
+.panel-group-message {
+    color: #ffbf75;
+    font-size: 0.8rem;
+    margin: 8px 0;
+}
+
+.panel-groups-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.panel-group-row {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 8px;
+    display: grid;
+    gap: 7px;
+}
+
+.panel-group-summary {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+}
+
+.panel-group-summary span {
+    color: var(--text-secondary);
 }
 
 

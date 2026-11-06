@@ -8,6 +8,8 @@ import { i18n } from './i18n.js?v=1.0.3';
 import DBStore from './project-store.js?v=1.0.3';
 import ProjectSession from './project-session.js?v=1.0.3';
 import HistoryController from './history-controller.js';
+import PanelController from './panel-controller.js';
+import { defaultPanelExport, reconcilePanelGroups } from './panel-groups.js';
 import { applyLayoutFields } from './project-layout.js';
 import { createProjectArchiveEntries } from './project-archive.js';
 import { waitForArchiveTask } from './archive-output.js';
@@ -335,6 +337,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             },
             imageMode: getActiveImageMode(),
             activeImageId: imageProcessor.activeImageId,
+            panelExport: structuredClone(gridManager.panelExport),
             cells: gridManager.getAllCells().map(c => ({
                 q: c.q,
                 r: c.r,
@@ -354,6 +357,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     let lastLayoutTimestamp = 0;
     let persistedLayoutTimestamp = 0;
     let projectImportInProgress = false;
+    const panelController = new PanelController({
+        gridManager, planner, exporter,
+        onChange: saveProjectState,
+        canEdit: () => canEditProject() && !projectImportInProgress && !projectResetInProgress
+    });
+    window.panelController = panelController;
     function makeSavedLayoutSnapshot() {
         const layoutData = JSON.parse(JSON.stringify(buildProjectLayout()));
         lastLayoutTimestamp = Math.max(Date.now(), lastLayoutTimestamp + 1);
@@ -385,6 +394,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function saveProjectState() {
         if (projectImportInProgress || projectResetInProgress || !canEditProject()) return;
+        const removedPanels = reconcilePanelGroups(gridManager.panelExport, gridManager);
+        panelController.refresh();
+        if (removedPanels) panelController.notifyRemoved(removedPanels);
         const layoutData = makeSavedLayoutSnapshot();
         historyController?.record(getHistorySnapshot(layoutData));
         saveLayoutBackup(layoutData);
@@ -616,7 +628,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const canvasStatusText = document.getElementById('canvas-status-text');
         if (!canvasStatusText) return;
 
-        if (planner.interactionMode === 'grid') {
+        if (planner.interactionMode === 'groups') {
+            canvasStatusText.textContent = i18n.t('status_groups_mode');
+        } else if (planner.interactionMode === 'grid') {
             canvasStatusText.textContent = i18n.t('status_grid_mode');
         } else {
             const mode = getActiveImageMode();
@@ -1501,6 +1515,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                             return;
                         }
                         gridManager.clearImageAssignments();
+                        gridManager.panelExport = defaultPanelExport();
+                        panelController.resetSelection();
+                        panelController.setMode('grid');
+                        panelController.refresh();
                         gridManager.setAllCellsStatus(true);
             
                         // Wyczyść IndexedDB i ImageProcessor
@@ -1714,6 +1732,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 groupZoom: hasImage ? savedCell.groupZoom : null
             });
         }
+        gridManager.panelExport = structuredClone(layout.panelExport ?? defaultPanelExport());
+        panelController.resetSelection();
+        panelController.refresh();
         if (getActiveImageMode() === 'single' && !(layout.cells || []).length) imageProcessor.recalculateSingleImageMapping(gridManager);
         gridManager.checkBedSizeFit();
         syncProjectUI();
@@ -1977,6 +1998,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             takeOverButton.textContent = i18n.t('take_over_project');
             takeOverButton.disabled = !projectReady || ['starting', 'taking-over', 'unavailable', 'suspending', 'suspended', 'releasing'].includes(status.state);
         }
+        panelController.refresh();
         applyReadOnlyControls();
     }
 

@@ -56,6 +56,12 @@ Symulacja AMS jest podglądem kolorów; STL nie zapisuje kolorów ani konfigurac
 
 Serwer developerski nasłuchuje na `127.0.0.1`, udostępnia wyłącznie publiczne zasoby aplikacji i blokuje wyjście poza katalog. Dla innego hostingu należy skonfigurować równoważne nagłówki bezpieczeństwa — zobacz `server/static-server.js`.
 
+## Panele PNG dla HueForge
+
+W planerze wybierz **Grupy PNG**, zaznacz co najmniej dwa sąsiadujące aktywne heksy i kliknij **Zapisz grupę**. Lista paneli pozwala edytować skład i usuwać grupy. Grupy są niezależne od trybu obrazów `span`, zapisują się w `.hexproj` i obsługują undo/redo. Wyłączenie członka lub zmiana siatki naruszająca grupę rozwiązuje ją w tym samym kroku historii.
+
+**Fuga paneli** (0–50 mm, domyślnie 0) zmienia wyłącznie rozstaw w eksporcie, zachowując kadry i kształty półheksów. **Pobierz grupy PNG (.ZIP)** zapisuje jeden przezroczysty PNG na grupę. Nazwy, np. `panel_A1_A2_40.00x69.28mm.png`, zawierają fizyczny bounding box do ustawienia wymiarów w HueForge. Wymiary w mm są niezależne od zaokrąglania liczby pikseli przy wybranym DPI. Ustawienie `Original` wybiera największą gęstość kadru w grupie. Każdy heks grupy musi mieć przypisany obraz.
+
 ## Testy
 
 ```sh
@@ -82,6 +88,7 @@ Testy obejmują geometrię i topologię STL, granice stołu, bezpieczeństwo ser
 - `js/wall-planner.js`, `js/preview-renderer.js` — renderowanie i interakcje.
 - `js/*generator.js` — ramki, reliefy i zawieszki STL.
 - `js/export-manager.js`, `js/download.js` — eksport i pobieranie.
+- `js/panel-groups.js`, `js/panel-controller.js`, `js/panel-export.js` — grupy paneli HueForge, ich obsługa i renderowanie PNG.
 - `vendor/` — lokalna biblioteka JSZip i jej licencja.
 - `server/`, `tests/` — serwer statyczny i testy regresji.
 
@@ -96,6 +103,8 @@ Assign one image to the entire wall, individual images to tiles, or an image acr
 Projects are autosaved locally in IndexedDB with a localStorage layout fallback. Export `.hexproj` backups to keep portable copies. Imports validate the entire project and decode images before replacing local data in one transaction. Legacy projects without a schema version remain supported. Grid size is limited to 25×25. ZIP archives, including `.hexproj` backups, are written to the selected file in chunks where the browser supports the File System Access API. It uses ZIP32 without compression and supports archives below 4 GiB; when the API is unavailable, a buffered download is limited to 256 MiB. The generator still creates one output Blob at a time, and image exports keep copies of their source images. `.hexproj` files keep the import-compatible limits: 250 MiB archive, 300 MiB unpacked data, a 5 MiB JSON manifest, images up to 50 MiB each, and up to 625 images. The save picker requires a secure context and a direct user action. Cancelling the picker, denying access, or a write error stops the save; it does not silently switch to a download. Per-output canvas and source image limits remain 16 and 64 megapixels. Exports show progress and can be cancelled. Relief generation and AMS palette quantization use module Workers where supported, with a main-thread fallback. Undo history is session-only and is not included in project backups.
 
 On the planner canvas, use arrow keys to select a cell and Space/Enter to toggle it in grid mode. Touch supports tapping cells and dragging the view. The layout reflows for small screens.
+
+For HueForge, choose **PNG groups**, select adjacent active hexes and save the group. Panels have an independent gap (0–50 mm, default 0), retain existing crops, and export together as transparent PNGs in one ZIP. Filenames include the exact physical bounding box rounded to two decimals; set that size in HueForge. Groups are saved in `.hexproj`, support undo/redo, and are independent of `span` image groups. Disabling a member or changing grid topology dissolves affected groups as part of that undoable edit.
 
 Run `npx playwright install chromium` and `npm test` for the full suite, or `CHROME_CHANNEL=chrome npm test` with installed Google Chrome. Tests cover geometry, project persistence/import safety, history, tab ownership, streamed ZIP output and cancellation, export workers, server security, and browser behavior. Regression tests live in `tests/`.
 
