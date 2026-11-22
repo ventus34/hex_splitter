@@ -62,6 +62,7 @@ export default class PanelController {
     setMode(mode) {
         if (!this.modeButtons[mode] || (mode === 'groups' && !this.canEdit())) return;
         this.planner.interactionMode = mode;
+        this.planner.gridEditor?.refresh();
         for (const [name, button] of Object.entries(this.modeButtons)) {
             button?.classList.toggle('active', name === mode);
             button?.setAttribute('aria-pressed', String(name === mode));

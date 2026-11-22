@@ -1,4 +1,5 @@
 import HexMath from './hex-math.js?v=1.0.3';
+import { cellKey } from './grid-topology.js';
 
 class WallPlanner {
     constructor(canvasId, gridManager, imageProcessor) {
@@ -9,6 +10,7 @@ class WallPlanner {
 
         // Stan widoku (Pan & Zoom)
         this.zoom = 1.0;
+        this.fitView = true;
         this.panX = 0;
         this.panY = 0;
         
@@ -34,6 +36,10 @@ class WallPlanner {
         this.pendingTouch = null;
 
         this.initEvents();
+        this.resizeObserver = new ResizeObserver(() => {
+            if (this.canvas.parentElement.clientWidth) this.resize();
+        });
+        this.resizeObserver.observe(this.canvas.parentElement);
     }
 
     /**
@@ -43,41 +49,41 @@ class WallPlanner {
         if (this.renderRequested) return;
         this.renderRequested = true;
         requestAnimationFrame(() => {
-            this.render();
             this.renderRequested = false;
+            this.render();
         });
     }
 
     resize() {
         const wrapper = this.canvas.parentElement;
+        if (this.canvas.width === wrapper.clientWidth && this.canvas.height === wrapper.clientHeight) return;
         this.canvas.width = wrapper.clientWidth;
         this.canvas.height = wrapper.clientHeight;
+        if (this.fitView) this.centerGrid();
+        else if (this.getSelectedCell()) this.revealCell(this.getSelectedCell());
         this.scheduleRender();
     }
 
-    /**
-     * Centruje siatkę w oknie podglądu
-     */
     centerGrid() {
+        this.fitView = true;
         const bbox = this.gridManager.getBoundingBoxMm();
-        if (bbox.width === 0 || bbox.height === 0) return;
-
-        const canvasW = this.canvas.width;
-        const canvasH = this.canvas.height;
-
-        // Oblicz środek siatki w mm
-        const gridCenterX = bbox.minX + bbox.width / 2;
-        const gridCenterY = bbox.minY + bbox.height / 2;
-
-        // Oblicz skalę dopasowania (z marginesem 10%)
-        const scaleX = canvasW / (bbox.width * 1.2);
-        const scaleY = canvasH / (bbox.height * 1.2);
-        this.zoom = Math.min(scaleX, scaleY, 4.0); // Ogranicz zoom do max 4x
-        this.zoom = Math.max(this.zoom, 0.1); // Ogranicz do min 0.1x
-
-        // Wyzeruj pan - centrowanie następuje automatycznie w renderze na podstawie środka siatki
-        this.panX = 0;
-        this.panY = 0;
+        if (!bbox.width || !bbox.height || !this.canvas.width || !this.canvas.height) return;
+        const corners = [
+            { x: bbox.minX, y: bbox.minY },
+            { x: bbox.maxX, y: bbox.maxY }
+        ];
+        const config = this.gridManager.config;
+        if (this.interactionMode === 'grid' && this.gridEditor) {
+            for (const candidate of this.gridEditor.candidates.values()) {
+                corners.push(...HexMath.getCellVertices(candidate, config));
+            }
+        }
+        const fit = HexMath.getPolygonBounds(corners);
+        const scaleX = (this.canvas.width - 24) / fit.width;
+        const scaleY = (this.canvas.height - 24) / fit.height;
+        this.zoom = Math.max(0.005, Math.min(scaleX, scaleY, 4));
+        this.panX = (bbox.minX + bbox.width / 2 - fit.minX - fit.width / 2) * this.zoom;
+        this.panY = (bbox.minY + bbox.height / 2 - fit.minY - fit.height / 2) * this.zoom;
         this.scheduleRender();
     }
 
@@ -159,97 +165,85 @@ class WallPlanner {
         });
     }
 
-    getCellAtClientPoint(clientX, clientY) {
+    getSelectedCell() {
+        return this.selectedCellKey ? this.gridManager.cells.get(this.selectedCellKey) ?? null : null;
+    }
+
+    getCellAtClientPoint(clientX, clientY, includeCandidates = false) {
         const rect = this.canvas.getBoundingClientRect();
-        const world = this.screenToWorld(clientX - rect.left, clientY - rect.top);
-        const hex = HexMath.pixelToAxial(
-            world.x,
-            world.y,
-            this.gridManager.config.hexSize,
-            this.gridManager.config.orientation,
-            this.gridManager.config.gap,
-            this.gridManager.config.stagger || 'left'
-        );
-        return this.gridManager.getCell(hex.q, hex.r);
+        const point = this.screenToWorld(clientX - rect.left, clientY - rect.top);
+        return this.gridManager.getCellAtPoint(point, includeCandidates ? this.gridEditor?.candidates : null);
     }
 
-    toggleCellAtClientPoint(clientX, clientY) {
-        const cell = this.getCellAtClientPoint(clientX, clientY);
-        if (!cell) return;
-        this.toggleCell(cell);
-    }
-
-    toggleCell(cell) {
-        const oldGroupId = cell.groupId;
-        this.gridManager.toggleCell(cell.q, cell.r);
-        const imageMode = document.querySelector('input[name="image-mode"]:checked')?.value || 'single';
-        if (imageMode === 'single') {
-            this.imageProcessor.recalculateSingleImageMapping(this.gridManager);
-        } else if (oldGroupId) {
-            const remainingCells = this.gridManager.getAllCells().filter(c => c.enabled && c.groupId === oldGroupId);
-            if (remainingCells.length > 0) {
-                const firstCell = remainingCells[0];
-                this.imageProcessor.recalculateGroupImageMapping(
-                    this.gridManager,
-                    remainingCells,
-                    firstCell.imageId,
-                    firstCell.groupZoom || 1.0,
-                    firstCell.groupShiftX || 0,
-                    firstCell.groupShiftY || 0
-                );
-            }
-        }
-        this.selectedCellKey = `${cell.q},${cell.r}`;
-        this.hoveredCellKey = this.selectedCellKey;
-        this.scheduleRender();
-        this.canvas.dispatchEvent(new CustomEvent('gridchange'));
-        const status = document.getElementById('planner-live-status');
-        if (status) status.textContent = `${cell.label}: ${cell.enabled ? 'active' : 'inactive'}`;
+    selectGridPoint(clientX, clientY) {
+        const cell = this.getCellAtClientPoint(clientX, clientY, true);
+        if (cell?.edge !== undefined) this.gridEditor?.add(cell.q, cell.r);
+        else this.gridEditor?.setSelection(cell);
     }
 
     handleCanvasKeydown(e) {
-        if (e.key === 'Escape' && this.interactionMode === 'groups') {
-            e.preventDefault();
-            this.panelController?.resetSelection();
-            this.panelController?.refresh();
+        if (e.key === 'Escape') {
+            if (this.interactionMode === 'groups') {
+                this.panelController?.resetSelection();
+                this.panelController?.refresh();
+            } else if (this.interactionMode === 'grid') {
+                this.gridEditor?.setSelection(null);
+            }
             return;
         }
+        if (e.key === 'Delete' && this.interactionMode === 'grid') {
+            e.preventDefault();
+            this.gridEditor?.remove();
+            return;
+        }
+
+        const current = this.getSelectedCell() ?? this.gridManager.getAllCells()[0];
         if (e.key === ' ' || e.key === 'Enter') {
             e.preventDefault();
-            if (this.interactionMode === 'groups') {
-                const cell = this.selectedCellKey
-                    ? this.gridManager.getCell(...this.selectedCellKey.split(',').map(Number))
-                    : this.gridManager.getAllCells()[0];
-                if (cell) this.panelController?.selectCell(cell);
-            } else if (this.interactionMode !== 'image') {
-                let cell = this.selectedCellKey
-                    ? this.gridManager.getCell(...this.selectedCellKey.split(',').map(Number))
-                    : null;
-                cell ||= this.gridManager.getAllCells()[0];
-                if (cell) this.toggleCell(cell);
-            }
+            if (this.interactionMode === 'groups') this.panelController?.selectCell(current);
+            else if (this.interactionMode === 'grid') this.gridEditor?.setSelection(current);
             return;
         }
 
         const directions = {
             ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]
         };
-        const [dc, dr] = directions[e.key] || [];
-        if (dc === undefined) return;
+        const direction = directions[e.key];
+        if (!direction || !current) return;
         e.preventDefault();
-        const cells = this.gridManager.getAllCells();
-        const current = this.selectedCellKey
-            ? this.gridManager.getCell(...this.selectedCellKey.split(',').map(Number))
-            : cells[0];
-        if (!current) return;
-        const target = cells.find(cell => cell.col === current.col + dc && cell.row === current.row + dr);
-        if (target) {
+        const [dc, dr] = direction;
+        let best = null;
+        let bestScore = Infinity;
+        for (const cell of this.gridManager.cells.values()) {
+            const x = cell.col - current.col;
+            const y = cell.row - current.row;
+            const forward = x * dc + y * dr;
+            const lateral = Math.abs(x * dr - y * dc);
+            if (forward <= 0) continue;
+            const score = forward + 2 * lateral;
+            if (score < bestScore) { best = cell; bestScore = score; }
+        }
+        const target = best ?? current;
+        if (this.interactionMode === 'grid') this.gridEditor?.setSelection(target);
+        else {
             this.selectedCellKey = `${target.q},${target.r}`;
             this.hoveredCellKey = this.selectedCellKey;
+            document.getElementById('planner-live-status').textContent = target.label;
             this.scheduleRender();
-            const status = document.getElementById('planner-live-status');
-            if (status) status.textContent = `${target.label}: ${target.enabled ? 'active' : 'inactive'}`;
         }
+        this.revealCell(target);
+    }
+
+    revealCell(cell) {
+        const polygon = cell.edge === undefined
+            ? this.gridManager.getCellVertices(cell)
+            : HexMath.getCellVertices(cell, this.gridManager.config);
+        const { minX, minY, width, height } = HexMath.getPolygonBounds(polygon);
+        const point = this.worldToScreen(minX + width / 2, minY + height / 2);
+        const fit = (n, limit) => Math.min(Math.max(n, 24), Math.max(24, limit - 24));
+        this.panX += fit(point.x, this.canvas.width) - point.x;
+        this.panY += fit(point.y, this.canvas.height) - point.y;
+        this.scheduleRender();
     }
 
     /**
@@ -265,33 +259,23 @@ class WallPlanner {
                 e.preventDefault();
                 this.canvas.setPointerCapture?.(e.pointerId);
                 if (this.interactionMode !== 'image') {
-                    this.pendingTouch = { x: e.clientX, y: e.clientY, mode: this.interactionMode === 'groups' ? 'group' : 'toggle' };
+                    this.pendingTouch = { x: e.clientX, y: e.clientY, mode: this.interactionMode === 'groups' ? 'group' : 'select' };
                     return;
                 }
             }
             if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey)) {
                 // Środkowy, prawy lub LPM z Shift = Przesuwanie (Pan)
                 this.isPanning = true;
+                this.fitView = false;
                 this.startX = e.clientX - this.panX;
                 this.startY = e.clientY - this.panY;
                 this.canvas.style.cursor = 'grabbing';
             } else if (e.button === 0) {
-                // Lewy przycisk myszy = Toggle komórki lub przypisanie obrazu / przesuwanie obrazu
-                const rect = this.canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-                
-                const world = this.screenToWorld(mouseX, mouseY);
-                const hex = HexMath.pixelToAxial(
-                    world.x, 
-                    world.y, 
-                    this.gridManager.config.hexSize, 
-                    this.gridManager.config.orientation,
-                    this.gridManager.config.gap,
-                    this.gridManager.config.stagger || 'left'
-                );
-
-                const cell = this.gridManager.getCell(hex.q, hex.r);
+                if (this.interactionMode === 'grid') {
+                    this.selectGridPoint(e.clientX, e.clientY);
+                    return;
+                }
+                const cell = this.getCellAtClientPoint(e.clientX, e.clientY);
                 
                 if (this.interactionMode === 'image') {
                     // Tryb przesuwania obrazu
@@ -325,8 +309,6 @@ class WallPlanner {
                     }
                 } else if (this.interactionMode === 'groups') {
                     if (cell) this.panelController?.selectCell(cell);
-                } else {
-                    if (cell) this.toggleCell(cell);
                 }
                 if (e.pointerType === 'touch' && !this.isDraggingImage) {
                     this.pendingTouch = { x: e.clientX, y: e.clientY, mode: 'pan' };
@@ -341,6 +323,7 @@ class WallPlanner {
                 const dy = e.clientY - this.pendingTouch.y;
                 if (Math.hypot(dx, dy) > 8) {
                     this.isPanning = true;
+                    this.fitView = false;
                     this.startX = this.pendingTouch.x - this.panX;
                     this.startY = this.pendingTouch.y - this.panY;
                     this.pendingTouch = { ...this.pendingTouch, mode: 'pan' };
@@ -353,10 +336,6 @@ class WallPlanner {
                 }
                 return;
             }
-            const rect = this.canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-
             if (this.isPanning) {
                 this.panX = e.clientX - this.startX;
                 this.panY = e.clientY - this.startY;
@@ -436,20 +415,9 @@ class WallPlanner {
                 this.scheduleRender();
                 this.canvas.dispatchEvent(new CustomEvent('gridchange'));
             } else {
-                // Sprawdzanie hovera nad komórkami
-                const world = this.screenToWorld(mouseX, mouseY);
-                const hex = HexMath.pixelToAxial(
-                    world.x, 
-                    world.y, 
-                    this.gridManager.config.hexSize, 
-                    this.gridManager.config.orientation,
-                    this.gridManager.config.gap,
-                    this.gridManager.config.stagger || 'left'
-                );
+                const cell = this.getCellAtClientPoint(e.clientX, e.clientY, this.interactionMode === 'grid');
+                const newKey = cell ? `${cell.q},${cell.r}` : null;
 
-                const cell = this.gridManager.getCell(hex.q, hex.r);
-                const newKey = cell ? `${hex.q},${hex.r}` : null;
-                
                 // Aktualizuj kursor myszy w trybie kadrowania
                 if (this.interactionMode === 'image') {
                     const imageMode = document.querySelector('input[name="image-mode"]:checked').value;
@@ -485,8 +453,8 @@ class WallPlanner {
 
         // Mouseup
         window.addEventListener('pointerup', () => {
-            if (this.pendingTouch?.mode === 'toggle' && this.interactionMode !== 'image') {
-                this.toggleCellAtClientPoint(this.pendingTouch.x, this.pendingTouch.y);
+            if (this.pendingTouch?.mode === 'select' && this.interactionMode === 'grid') {
+                this.selectGridPoint(this.pendingTouch.x, this.pendingTouch.y);
             } else if (this.pendingTouch?.mode === 'group' && this.interactionMode === 'groups') {
                 const cell = this.getCellAtClientPoint(this.pendingTouch.x, this.pendingTouch.y);
                 if (cell) this.panelController?.selectCell(cell);
@@ -523,14 +491,14 @@ class WallPlanner {
             // Punkt pod myszką w układzie "world"
             const worldBefore = this.screenToWorld(mouseX, mouseY);
 
-            // Zmień zoom
+            this.fitView = false;
             const zoomFactor = 1.15;
             if (e.deltaY < 0) {
                 this.zoom *= zoomFactor;
             } else {
                 this.zoom /= zoomFactor;
             }
-            this.zoom = Math.min(Math.max(this.zoom, 0.1), 4.0);
+            this.zoom = Math.min(Math.max(this.zoom, 0.005), 4.0);
 
             // Wylicz nową pozycję pan, aby zachować punkt pod myszką
             const bbox = this.gridManager.getBoundingBoxMm();
@@ -548,21 +516,7 @@ class WallPlanner {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
             
-            const rect = this.canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-
-            const world = this.screenToWorld(mouseX, mouseY);
-            const hex = HexMath.pixelToAxial(
-                world.x, 
-                world.y, 
-                this.gridManager.config.hexSize, 
-                this.gridManager.config.orientation,
-                this.gridManager.config.gap,
-                this.gridManager.config.stagger || 'left'
-            );
-
-            const cell = this.gridManager.getCell(hex.q, hex.r);
+            const cell = this.getCellAtClientPoint(e.clientX, e.clientY);
             const newKey = (cell && cell.enabled) ? `${hex.q},${hex.r}` : null;
 
             if (this.hoveredCellKey !== newKey) {
@@ -585,21 +539,7 @@ class WallPlanner {
             const imageObj = this.imageProcessor.getImage(imageId);
             if (!imageObj) return;
 
-            const rect = this.canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-
-            const world = this.screenToWorld(mouseX, mouseY);
-            const hex = HexMath.pixelToAxial(
-                world.x, 
-                world.y, 
-                this.gridManager.config.hexSize, 
-                this.gridManager.config.orientation,
-                this.gridManager.config.gap,
-                this.gridManager.config.stagger || 'left'
-            );
-
-            const cell = this.gridManager.getCell(hex.q, hex.r);
+            const cell = this.getCellAtClientPoint(e.clientX, e.clientY);
             if (cell && cell.enabled) {
                 const imageMode = document.querySelector('input[name="image-mode"]:checked').value;
                 if (imageMode === 'multi') {
@@ -650,9 +590,8 @@ class WallPlanner {
         const imageMode = document.querySelector('input[name="image-mode"]:checked')?.value || 'single';
         const imageId = this.imageProcessor.activeImageId;
         const imageObj = imageId ? this.imageProcessor.getImage(imageId) : null;
-        const bbox = this.renderTransform.bbox;
-
-        if (bbox.width > 0 && bbox.height > 0 && imageMode === 'single' && imageObj && this.interactionMode === 'image') {
+        if (imageMode === 'single' && imageObj && this.interactionMode === 'image' && this.gridManager.cells.size) {
+            const bbox = this.gridManager.getImageBounds();
             const imgWidth = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
             const imgHeight = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.height : imageObj.height;
             const imgAspect = imgWidth / imgHeight;
@@ -691,201 +630,120 @@ class WallPlanner {
             this.ctx.restore();
         }
 
-        const cells = this.gridManager.getAllCells();
-        const hexSize = this.gridManager.config.hexSize;
-        const orientation = this.gridManager.config.orientation;
-        const gap = this.gridManager.config.gap;
-
-        // Pobierz wymiary fizyczne jednego heksa
-        const hexDim = HexMath.getHexDimensions(hexSize, orientation);
-
-        // 1. Rysuj nieaktywne komórki najpierw (pod spodem)
-        cells.forEach(cell => {
-            if (!cell.enabled) {
-                this.drawCell(cell, hexSize, orientation, gap, hexDim);
-            }
-        });
-
-        // 2. Rysuj aktywne komórki
-        cells.forEach(cell => {
-            if (cell.enabled) {
-                this.drawCell(cell, hexSize, orientation, gap, hexDim);
-            }
-        });
-
+        const { hexSize, orientation } = this.gridManager.config;
+        const nominal = HexMath.getHexDimensions(hexSize, orientation);
+        const hoveredGroup = imageMode === 'span'
+            ? this.gridManager.cells.get(this.hoveredCellKey)?.groupId : null;
+        for (const cell of this.gridManager.getActiveCells()) this.drawCell(cell, nominal, hoveredGroup);
+        if (this.interactionMode === 'grid') this.drawNeighbors();
         this.panelController?.drawOverlay(this.ctx);
-
-        // 3. Rysuj ramki/obwoluty dookoła jeśli są włączone i aktywny podgląd (opcjonalnie)
-        // W trybie planowania pokazujemy tylko zarys heksów i ewentualnie szczelinę.
     }
 
-    /**
-     * Rysuje pojedynczy heksagon
-     */
-    drawCell(cell, hexSize, orientation, gap, hexDim) {
-        const stagger = this.gridManager.config.stagger || 'left';
-        const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
-        
-        // Przelicz unclipped center na ekran (używane do pozycjonowania tła obrazu)
-        const screenCenter = this.worldToScreen(posMm.x, posMm.y);
-        
-        // Pobierz wierzchołki w skali mm (bez DPI) z uwzględnieniem obcinania i rzutuj na ekran
-        const verticesMm = HexMath.getCellVertices(cell, this.gridManager.config);
-        const vertices = verticesMm.map(v => this.worldToScreen(v.x, v.y));
-        
-        // Oblicz screenPos jako środek wielokąta do pozycjonowania tekstu etykiety
-        let sumX = 0, sumY = 0;
-        vertices.forEach(v => {
-            sumX += v.x;
-            sumY += v.y;
+    drawNeighbors() {
+        if (!this.gridEditor?.candidates.size) return;
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.lineWidth = 1.5;
+        for (const cell of this.gridEditor.candidates.values()) {
+            const config = this.gridManager.config;
+            const vertices = HexMath.getCellVertices(cell, config);
+            const { x, y } = HexMath.axialToPixel(cell.q, cell.r, config.hexSize, config.orientation, config.gap, config.stagger);
+            const center = this.worldToScreen(x, y);
+            ctx.beginPath();
+            for (const vertex of vertices) {
+                const point = this.worldToScreen(vertex.x, vertex.y);
+                ctx.lineTo(point.x, point.y);
+            }
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(128, 185, 232, 0.12)';
+            ctx.fill();
+            ctx.strokeStyle = '#80b9e8';
+            ctx.setLineDash([5, 4]);
+            ctx.stroke();
+            ctx.fillStyle = '#b9d9f3';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('+', center.x, center.y);
+        }
+        ctx.restore();
+    }
+
+    drawCell(cell, nominal, hoveredGroup) {
+        const { hexSize, orientation, gap, stagger } = this.gridManager.config;
+        const world = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
+        const center = this.worldToScreen(world.x, world.y);
+        const margin = hexSize * this.zoom + 14;
+        if (center.x < -margin || center.y < -margin ||
+            center.x > this.canvas.width + margin || center.y > this.canvas.height + margin) return;
+
+        const vertices = this.gridManager.getCellVertices(cell);
+        if (!vertices.length) return;
+        const path = new Path2D();
+        let sumX = 0;
+        let sumY = 0;
+        vertices.forEach((vertex, index) => {
+            const { x, y } = this.worldToScreen(vertex.x, vertex.y);
+            if (index === 0) path.moveTo(x, y);
+            else path.lineTo(x, y);
+            sumX += x;
+            sumY += y;
         });
-        const screenPos = vertices.length > 0 ? { x: sumX / vertices.length, y: sumY / vertices.length } : screenCenter;
+        path.closePath();
 
-        this.ctx.save();
-
-        if (cell.enabled) {
-            // Czy komórka ma przypisany obraz?
-            if (cell.imageId && this.imageProcessor.getImage(cell.imageId)) {
-                const imageObj = this.imageProcessor.getImage(cell.imageId);
-                
-                // Przytnij do heksagonu/wielokąta
-                this.ctx.beginPath();
-                vertices.forEach((v, idx) => {
-                    if (idx === 0) this.ctx.moveTo(v.x, v.y);
-                    else this.ctx.lineTo(v.x, v.y);
-                });
-                this.ctx.closePath();
-                this.ctx.clip();
-
-                // Narysuj wykadrowany fragment
-                const crop = cell.cropRegion;
-                const drawW = hexDim.width * this.zoom;
-                const drawH = hexDim.height * this.zoom;
-                const sourceElement = this.imageProcessor.getRotatedCanvasOrImage(imageObj);
-
-                if (crop) {
-                    this.ctx.drawImage(
-                        sourceElement,
-                        crop.x, crop.y, crop.w, crop.h,
-                        screenCenter.x - drawW / 2, screenCenter.y - drawH / 2,
-                        drawW, drawH
-                    );
-                } else {
-                    this.ctx.drawImage(
-                        sourceElement,
-                        screenCenter.x - drawW / 2, screenCenter.y - drawH / 2,
-                        drawW, drawH
-                    );
-                }
-            } else {
-                // Aktywna komórka, ale bez obrazka (lub brak obrazka w pamięci)
-                this.ctx.fillStyle = 'rgba(0, 229, 255, 0.08)';
-                this.ctx.beginPath();
-                vertices.forEach((v, idx) => {
-                    if (idx === 0) this.ctx.moveTo(v.x, v.y);
-                    else this.ctx.lineTo(v.x, v.y);
-                });
-                this.ctx.closePath();
-                this.ctx.fill();
-            }
-
-            // Rysuj obrys aktywnego heksa
-            if (cell.exceedsBedSize) {
-                this.ctx.strokeStyle = '#ff1744'; // Czerwony dla zbyt dużego elementu
-                this.ctx.lineWidth = 2.5;
-                this.ctx.setLineDash([4, 4]); // Przerywana linia
-            } else {
-                this.ctx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
-                this.ctx.lineWidth = 1.5;
-            }
-            this.ctx.beginPath();
-            vertices.forEach((v, idx) => {
-                if (idx === 0) this.ctx.moveTo(v.x, v.y);
-                else this.ctx.lineTo(v.x, v.y);
-            });
-            this.ctx.closePath();
-            this.ctx.stroke();
-            this.ctx.setLineDash([]); // Reset dash
-
-            // Rysuj czerwony nakładkowy filtr, jeśli przekracza stół
-            if (cell.exceedsBedSize) {
-                this.ctx.fillStyle = 'rgba(255, 23, 68, 0.12)';
-                this.ctx.beginPath();
-                vertices.forEach((v, idx) => {
-                    if (idx === 0) this.ctx.moveTo(v.x, v.y);
-                    else this.ctx.lineTo(v.x, v.y);
-                });
-                this.ctx.closePath();
-                this.ctx.fill();
-            }
-
-            // Czy to komórka nad którą stoi kursor?
-            const isHovered = (this.hoveredCellKey === `${cell.q},${cell.r}`);
-            const imageMode = document.querySelector('input[name="image-mode"]:checked')?.value || 'single';
-            
-            let isGroupHovered = false;
-            if (imageMode === 'span' && cell.groupId && this.hoveredCellKey) {
-                const hoveredCell = this.gridManager.getCell(...this.hoveredCellKey.split(',').map(Number));
-                if (hoveredCell && hoveredCell.groupId === cell.groupId) {
-                    isGroupHovered = true;
-                }
-            }
-
-            if (isHovered || isGroupHovered) {
-                this.ctx.strokeStyle = '#00e5ff';
-                this.ctx.lineWidth = 3;
-                this.ctx.shadowColor = 'rgba(0, 229, 255, 0.8)';
-                this.ctx.shadowBlur = 8;
-                this.ctx.beginPath();
-                vertices.forEach((v, idx) => {
-                    if (idx === 0) this.ctx.moveTo(v.x, v.y);
-                    else this.ctx.lineTo(v.x, v.y);
-                });
-                this.ctx.closePath();
-                this.ctx.stroke();
-            }
-
-            // Resetuj shadow przed rysowaniem tekstu
-            this.ctx.shadowBlur = 0;
-
-            // Rysuj etykietę (np. A1, A2)
-            this.ctx.fillStyle = '#ffffff';
-            this.ctx.font = `bold ${Math.max(10, Math.min(14, 12 * this.zoom))}px 'Inter', sans-serif`;
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'middle';
-            
-            // Tło pod tekstem dla czytelności nad grafiką
-            const text = cell.label;
-            const textWidth = this.ctx.measureText(text).width;
-            this.ctx.fillStyle = 'rgba(10, 12, 16, 0.7)';
-            this.ctx.fillRect(screenPos.x - textWidth/2 - 4, screenPos.y - 8, textWidth + 8, 16);
-            
-            this.ctx.fillStyle = '#00e5ff';
-            this.ctx.fillText(text, screenPos.x, screenPos.y);
-
+        const ctx = this.ctx;
+        ctx.save();
+        const image = this.imageProcessor.getImage(cell.imageId);
+        if (image) {
+            const source = this.imageProcessor.getRotatedCanvasOrImage(image);
+            const width = nominal.width * this.zoom;
+            const height = nominal.height * this.zoom;
+            const x = center.x - width / 2;
+            const y = center.y - height / 2;
+            const crop = cell.cropRegion;
+            ctx.save();
+            ctx.clip(path);
+            if (crop) ctx.drawImage(source, crop.x, crop.y, crop.w, crop.h, x, y, width, height);
+            else ctx.drawImage(source, x, y, width, height);
+            ctx.restore();
         } else {
-            // Nieaktywna komórka (szary dashed outline)
-            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-            this.ctx.setLineDash([5, 5]);
-            this.ctx.lineWidth = 1;
-            this.ctx.beginPath();
-            vertices.forEach((v, idx) => {
-                if (idx === 0) this.ctx.moveTo(v.x, v.y);
-                else this.ctx.lineTo(v.x, v.y);
-            });
-            this.ctx.closePath();
-            this.ctx.stroke();
-            this.ctx.setLineDash([]); // reset
-
-            // Delikatny tekst typu "-" w środku
-            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-            this.ctx.font = `${Math.max(8, 10 * this.zoom)}px monospace`;
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'middle';
-            this.ctx.fillText(cell.label, screenPos.x, screenPos.y);
+            ctx.fillStyle = 'rgba(128, 185, 232, 0.08)';
+            ctx.fill(path);
         }
 
-        this.ctx.restore();
+        ctx.strokeStyle = 'rgba(128, 185, 232, 0.4)';
+        ctx.lineWidth = 1.5;
+        if (cell.exceedsBedSize) {
+            ctx.fillStyle = 'rgba(255, 23, 68, 0.12)';
+            ctx.fill(path);
+            ctx.strokeStyle = '#ff1744';
+            ctx.lineWidth = 2.5;
+            ctx.setLineDash([4, 4]);
+        }
+        ctx.stroke(path);
+        ctx.setLineDash([]);
+
+        const key = cellKey(cell.q, cell.r);
+        const selected = this.interactionMode === 'grid' && this.selectedCellKey === key;
+        if (selected || this.hoveredCellKey === key || (hoveredGroup && cell.groupId === hoveredGroup)) {
+            ctx.strokeStyle = '#9dc9ee';
+            ctx.lineWidth = 3;
+            ctx.stroke(path);
+        }
+
+        if (nominal.width * this.zoom >= 18) {
+            const x = sumX / vertices.length;
+            const y = sumY / vertices.length;
+            ctx.font = `bold ${Math.max(10, Math.min(14, 12 * this.zoom))}px Inter, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const textWidth = ctx.measureText(cell.label).width;
+            ctx.fillStyle = 'rgba(10, 12, 16, 0.7)';
+            ctx.fillRect(x - textWidth / 2 - 4, y - 8, textWidth + 8, 16);
+            ctx.fillStyle = '#9dc9ee';
+            ctx.fillText(cell.label, x, y);
+        }
+        ctx.restore();
     }
 
     /**

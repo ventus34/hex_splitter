@@ -1,6 +1,10 @@
 import HexMath from './hex-math.js';
 import FrameGenerator from './frame-generator.js';
 import { defaultPanelExport } from './panel-groups.js';
+import {
+    MAX_GRID_CELLS, canStoreCoordinate, cellKey, cellLabel, getGridExtent,
+    isGridExtentValid, starterCoordinates, toAxial, toOffset
+} from './grid-topology.js';
 
 class GridManager {
     constructor() {
@@ -28,71 +32,114 @@ class GridManager {
         // Klucz: "q,r", Wartość: CellState
         this.cells = new Map();
         this.panelExport = defaultPanelExport();
+        this.invalidateGeometry();
     }
 
-    /**
-     * Inicjalizuje nową siatkę na podstawie konfiguracji
-     */
+    invalidateGeometry() {
+        this.polygons = new Map();
+        this.bounds = new Map();
+        this.extent = null;
+        this.imageBounds = null;
+    }
+
+    makeCell({ q, r, ...data }) {
+        const { col, row } = toOffset(q, r, this.config.orientation);
+        return {
+            enabled: true, imageId: null, cropRegion: null, ...data,
+            q, r, col, row, label: cellLabel(col, row)
+        };
+    }
+
     generateGrid() {
-        const oldCells = new Map(this.cells);
-        this.cells.clear();
-
         const { columns, rows, orientation } = this.config;
-
-        for (let col = 0; col < columns; col++) {
-            for (let row = 0; row < rows; row++) {
-                // Oblicz axialne współrzędne na podstawie wiersza/kolumny
-                let q, r;
-                if (orientation === 'flat-top') {
-                    q = col;
-                    r = row - Math.floor(col / 2);
-                } else {
-                    q = col - Math.floor(row / 2);
-                    r = row;
-                }
-
-                const key = `${q},${r}`;
-                const label = this.getCellLabel(col, row);
-
-                // Zachowaj stan przypisania grafiki jeśli heks już istniał
-                if (oldCells.has(key)) {
-                    const prev = oldCells.get(key);
-                    this.cells.set(key, {
-                        ...prev,
-                        col,
-                        row,
-                        label // Odśwież etykietę
-                    });
-                } else {
-                    this.cells.set(key, {
-                        q,
-                        r,
-                        col,
-                        row,
-                        label,
-                        enabled: true,
-                        imageId: null, // ID grafiki w ImageProcessor
-                        cropRegion: null // Wycięty obszar {x, y, w, h}
-                    });
-                }
-            }
-        }
-        
-        // Weryfikacja wymiarów stołu drukarki dla heksów
+        const previous = this.cells;
+        this.cells = new Map(starterCoordinates(columns, rows, orientation).map(({ q, r }) => {
+            const key = cellKey(q, r);
+            return [key, this.makeCell(previous.get(key) ?? { q, r })];
+        }));
+        this.invalidateGeometry();
         this.checkBedSizeFit();
     }
 
-    /**
-     * Generuje czytelną etykietę szachownicową (np. A1, B3, AA2)
-     */
-    getCellLabel(col, row) {
-        let temp = col;
-        let letter = '';
-        while (temp >= 0) {
-            letter = String.fromCharCode((temp % 26) + 65) + letter;
-            temp = Math.floor(temp / 26) - 1;
+    seedGrid(config) {
+        this.config = { ...this.config, ...config, topology: 'explicit', halfHexes: false };
+        const { columns, rows, orientation } = this.config;
+        this.restoreCells(starterCoordinates(columns, rows, orientation));
+    }
+
+    restoreCells(cells) {
+        this.cells = new Map(cells.map(data => {
+            const cell = this.makeCell({ shape: { kind: 'full' }, ...data, enabled: true });
+            return [cellKey(cell.q, cell.r), cell];
+        }));
+        this.invalidateGeometry();
+        this.checkBedSizeFit();
+    }
+
+    canAddCell(q, r) {
+        if (!canStoreCoordinate(q, r, this.config.orientation) || this.cells.size >= MAX_GRID_CELLS || this.getCell(q, r)) return false;
+        this.extent ??= getGridExtent(this.cells.values(), this.config.orientation);
+        const { col, row } = toOffset(q, r, this.config.orientation);
+        const { minCol, maxCol, minRow, maxRow } = this.extent;
+        return isGridExtentValid({
+            minCol: Math.min(minCol, col), maxCol: Math.max(maxCol, col),
+            minRow: Math.min(minRow, row), maxRow: Math.max(maxRow, row)
+        });
+    }
+
+    getAvailableNeighbors(cell) {
+        if (!cell) return [];
+        const { orientation, stagger } = this.config;
+        return Array.from({ length: 6 }, (_, edge) => {
+            const offset = HexMath.getNeighborOffset(edge, orientation, stagger, cell.q, cell.r);
+            return this.makeCell({ q: cell.q + offset.q, r: cell.r + offset.r, edge });
+        }).filter(({ q, r }) => this.canAddCell(q, r));
+    }
+
+    addCell(q, r) {
+        if (!this.canAddCell(q, r)) return false;
+        this.cells.set(cellKey(q, r), this.makeCell({ q, r, shape: { kind: 'full' } }));
+        this.invalidateGeometry();
+        this.checkBedSizeFit();
+        return true;
+    }
+
+    removeCell(q, r) {
+        if (!this.cells.delete(cellKey(q, r))) return false;
+        this.invalidateGeometry();
+        this.checkBedSizeFit();
+        return true;
+    }
+
+    setCellShape(cell, shape) {
+        if (!HexMath.getCellVertices({ ...cell, shape }, this.config).length) return false;
+        cell.shape = shape;
+        this.invalidateGeometry();
+        this.checkBedSizeFit();
+        return true;
+    }
+
+    getCellVertices(cell) {
+        const key = cellKey(cell.q, cell.r);
+        if (!this.polygons.has(key)) this.polygons.set(key, HexMath.getCellVertices(cell, this.config));
+        return this.polygons.get(key);
+    }
+
+    getCellAtPoint(point, candidates) {
+        const { hexSize, orientation, gap, stagger } = this.config;
+        const origin = HexMath.pixelToAxial(point.x, point.y, hexSize, orientation, gap, stagger);
+        const coordinates = [origin];
+        for (let edge = 0; edge < 6; edge++) {
+            const delta = HexMath.getNeighborOffset(edge, orientation, stagger, origin.q, origin.r);
+            coordinates.push({ q: origin.q + delta.q, r: origin.r + delta.r });
         }
-        return `${letter}${row + 1}`;
+        for (const { q, r } of coordinates) {
+            const cell = this.getCell(q, r);
+            if (cell?.enabled && HexMath.containsPoint(this.getCellVertices(cell), point)) return cell;
+            const candidate = candidates?.get(cellKey(q, r));
+            if (candidate && HexMath.containsPoint(HexMath.getCellVertices(candidate, this.config), point)) return candidate;
+        }
+        return null;
     }
 
     /**
@@ -117,50 +164,28 @@ class GridManager {
     }
 
     /**
-     * Włącza/wyłącza komórkę
-     */
-    toggleCell(q, r) {
-        const key = `${q},${r}`;
-        const cell = this.cells.get(key);
-        if (cell) {
-            cell.enabled = !cell.enabled;
-            // Jeśli wyłączamy komórkę, resetujemy jej przypisania
-            if (!cell.enabled) {
-                cell.imageId = null;
-                cell.cropRegion = null;
-                cell.groupId = null;
-                cell.groupShiftX = null;
-                cell.groupShiftY = null;
-                cell.groupZoom = null;
-            }
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Ustawia status wszystkich komórek na raz
-     */
-    setAllCellsStatus(enabled) {
-        for (const cell of this.cells.values()) {
-            cell.enabled = enabled;
-            if (!enabled) {
-                cell.imageId = null;
-                cell.cropRegion = null;
-                cell.groupId = null;
-                cell.groupShiftX = null;
-                cell.groupShiftY = null;
-                cell.groupZoom = null;
-            }
-        }
-    }
-
-    /**
      * Aktualizuje konfigurację siatki
      */
     updateConfig(newConfig) {
+        const previousOrientation = this.config.orientation;
         this.config = { ...this.config, ...newConfig };
-        this.generateGrid();
+        if (this.config.topology !== 'explicit') {
+            this.generateGrid();
+            return;
+        }
+        if (this.config.orientation !== previousOrientation) {
+            const remap = ({ q, r }) => {
+                const { col, row } = toOffset(q, r, previousOrientation);
+                return toAxial(col, row, this.config.orientation);
+            };
+            this.cells = new Map(this.getAllCells().map(cell => {
+                const moved = this.makeCell({ ...cell, ...remap(cell) });
+                return [cellKey(moved.q, moved.r), moved];
+            }));
+            for (const group of this.panelExport.groups) group.cells = group.cells.map(remap);
+        }
+        this.invalidateGeometry();
+        this.checkBedSizeFit();
     }
 
     /**
@@ -194,81 +219,32 @@ class GridManager {
      * Oblicza całkowite fizyczne wymiary siatki w mm
      * Zwraca { width: mm, height: mm, minX: px, minY: px, maxX: px, maxY: px }
      */
-    getBoundingBoxMm() {
-        const activeCells = this.getActiveCells();
-        if (activeCells.length === 0) return { width: 0, height: 0, minX: 0, minY: 0, maxX: 0, maxY: 0 };
-
-        let minX = Infinity;
-        let maxX = -Infinity;
-        let minY = Infinity;
-        let maxY = -Infinity;
-
-        // Przejdź po wszystkich aktywnych heksach
-        activeCells.forEach(cell => {
-            // Pobierz wierzchołki w skali mm (bez DPI) z uwzględnieniem ewentualnego obcinania
-            const vertices = HexMath.getCellVertices(cell, this.config);
-
-            vertices.forEach(v => {
-                if (v.x < minX) minX = v.x;
-                if (v.x > maxX) maxX = v.x;
-                if (v.y < minY) minY = v.y;
-                if (v.y > maxY) maxY = v.y;
-            });
-        });
-
-        if (![minX, maxX, minY, maxY].every(Number.isFinite)) {
-            return { width: 0, height: 0, minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    getBoundingBoxMm(gap = this.config.gap) {
+        if (!this.bounds.has(gap)) {
+            this.bounds.set(gap, this.getBoundingBoxOfCells(this.getActiveCells(), gap));
         }
-
-        const width = maxX - minX;
-        const height = maxY - minY;
-
-        return {
-            width,
-            height,
-            minX,
-            minY,
-            maxX,
-            maxY
-        };
+        return this.bounds.get(gap);
     }
 
-    /**
-     * Oblicza wymiary fizyczne grupy heksów w mm
-     */
-    getBoundingBoxOfCells(cells) {
-        if (!cells || cells.length === 0) return { width: 0, height: 0, minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    getImageBounds(cells) {
+        if (cells) return this.getBoundingBoxOfCells(cells, this.config.gap, true);
+        this.imageBounds ??= this.getBoundingBoxOfCells(this.getActiveCells(), this.config.gap, true);
+        return this.imageBounds;
+    }
 
-        let minX = Infinity;
-        let maxX = -Infinity;
-        let minY = Infinity;
-        let maxY = -Infinity;
-
-        cells.forEach(cell => {
-            const vertices = HexMath.getCellVertices(cell, this.config);
-            vertices.forEach(v => {
-                if (v.x < minX) minX = v.x;
-                if (v.x > maxX) maxX = v.x;
-                if (v.y < minY) minY = v.y;
-                if (v.y > maxY) maxY = v.y;
-            });
-        });
-
-        if (![minX, maxX, minY, maxY].every(Number.isFinite)) {
-            return { width: 0, height: 0, minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    getBoundingBoxOfCells(cells, gap = this.config.gap, forImage = false) {
+        const vertices = [];
+        for (const cell of cells ?? []) {
+            const shift = HexMath.getGapTranslation(cell, this.config, gap);
+            // A manual cut masks the image without changing its coordinate system.
+            const polygon = forImage && cell.shape?.kind === 'cuts'
+                ? HexMath.getCellVertices({ ...cell, shape: { kind: 'full' } }, this.config)
+                : this.getCellVertices(cell);
+            for (const point of polygon) {
+                vertices.push({ x: point.x + shift.x, y: point.y + shift.y });
+            }
         }
-
-        const width = maxX - minX;
-        const height = maxY - minY;
-
-        return {
-            width,
-            height,
-            minX,
-            minY,
-            maxX,
-            maxY
-        };
+        return HexMath.getPolygonBounds(vertices);
     }
 
     /**
@@ -290,7 +266,7 @@ class GridManager {
                 const frame = FrameGenerator.getFrameVerticesMm(cell, this, frameWidth, frameClearance);
                 vertices = frame.outerVerticesMm;
             } else {
-                vertices = HexMath.getCellVertices(cell, this.config);
+                vertices = this.getCellVertices(cell);
             }
 
             if (!vertices || vertices.length < 3 || ![bedX, bedY].every(value => Number.isFinite(value) && value > 0)) {

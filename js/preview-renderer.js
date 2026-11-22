@@ -1,8 +1,6 @@
 import HexMath from './hex-math.js?v=1.0.3';
 import FrameGenerator from './frame-generator.js?v=1.0.3';
 import { parseBoundedNumber } from './project-validation.js?v=1.0.3';
-import AmsQuantizerClient from './ams-quantizer-client.js?v=1.0.3';
-import { quantizeRgbaPixels } from './ams-quantizer.js?v=1.0.3';
 
 class PreviewRenderer {
     constructor(canvasId, gridManager, imageProcessor) {
@@ -25,41 +23,14 @@ class PreviewRenderer {
             showGaps: true,
             showLabels: true,
             showFrames: false,
-            showHangers: false,
             showRuler: true,
             background: 'dark', // 'transparent' | 'dark' | 'light' | 'wall'
-            amsPreview: false,
-            amsColors: 4
         };
 
         this.renderRequested = false;
         this.renderTransform = null;
-        this.offscreenCanvas = document.createElement('canvas');
-        this.amsCacheCanvas = document.createElement('canvas');
-        this.amsCacheKey = null;
-        this.amsCurrentSceneKey = null;
-        this.amsWorkerEnabled = true;
-        this.amsWorkerFailed = false;
         this.wallTextureCanvas = null;
         this.wallTextureSize = '';
-        this.sourceIds = new WeakMap();
-        this.nextSourceId = 1;
-        this.amsQuantizer = new AmsQuantizerClient({
-            workerFactory: () => this.createAmsWorker(),
-            isCurrent: job => this.isCurrentAmsJob(job),
-            onResult: result => this.handleAmsWorkerResult(result),
-            onError: (error, job) => this.handleAmsWorkerError(error, job)
-        });
-        this.handlePageHide = () => {
-            this.amsQuantizer.cancel();
-            this.amsCurrentSceneKey = null;
-        };
-        window.addEventListener('pagehide', this.handlePageHide);
-        this.handlePageShow = () => {
-            if (this.options.amsPreview) this.scheduleRender();
-        };
-        window.addEventListener('pageshow', this.handlePageShow);
-
         this.initEvents();
     }
 
@@ -70,8 +41,8 @@ class PreviewRenderer {
         if (this.renderRequested) return;
         this.renderRequested = true;
         requestAnimationFrame(() => {
-            this.render();
             this.renderRequested = false;
+            this.render();
         });
     }
 
@@ -83,7 +54,7 @@ class PreviewRenderer {
     }
 
     centerGrid() {
-        const bbox = this.gridManager.getBoundingBoxMm();
+        const bbox = this.gridManager.getBoundingBoxMm(this.displayGap);
         if (bbox.width === 0 || bbox.height === 0) return;
 
         const canvasW = this.canvas.width;
@@ -92,7 +63,7 @@ class PreviewRenderer {
         const scaleX = canvasW / (bbox.width * 1.3);
         const scaleY = canvasH / (bbox.height * 1.3);
         this.zoom = Math.min(scaleX, scaleY, 4.0);
-        this.zoom = Math.max(this.zoom, 0.1);
+        this.zoom = Math.max(this.zoom, 0.005);
 
         this.panX = 0;
         this.panY = 0;
@@ -100,7 +71,7 @@ class PreviewRenderer {
     }
 
     screenToWorld(screenX, screenY) {
-        const bbox = this.renderTransform?.bbox || this.gridManager.getBoundingBoxMm();
+        const bbox = this.renderTransform?.bbox || this.gridManager.getBoundingBoxMm(this.displayGap);
         const gridCenterX = bbox.minX + bbox.width / 2;
         const gridCenterY = bbox.minY + bbox.height / 2;
 
@@ -111,7 +82,7 @@ class PreviewRenderer {
     }
 
     worldToScreen(worldX, worldY) {
-        const bbox = this.renderTransform?.bbox || this.gridManager.getBoundingBoxMm();
+        const bbox = this.renderTransform?.bbox || this.gridManager.getBoundingBoxMm(this.displayGap);
         const gridCenterX = bbox.minX + bbox.width / 2;
         const gridCenterY = bbox.minY + bbox.height / 2;
 
@@ -170,9 +141,9 @@ class PreviewRenderer {
             } else {
                 this.zoom /= zoomFactor;
             }
-            this.zoom = Math.min(Math.max(this.zoom, 0.1), 4.0);
+            this.zoom = Math.min(Math.max(this.zoom, 0.005), 4.0);
 
-            const bbox = this.gridManager.getBoundingBoxMm();
+            const bbox = this.gridManager.getBoundingBoxMm(this.displayGap);
             const gridCenterX = bbox.minX + bbox.width / 2;
             const gridCenterY = bbox.minY + bbox.height / 2;
 
@@ -183,16 +154,6 @@ class PreviewRenderer {
         }, { passive: false });
     }
 
-    createOffscreenCtx(w, h) {
-        if (this.offscreenCanvas.width !== w || this.offscreenCanvas.height !== h) {
-            this.offscreenCanvas.width = w;
-            this.offscreenCanvas.height = h;
-        }
-        const ctx = this.offscreenCanvas.getContext('2d');
-        ctx.clearRect(0, 0, w, h);
-        return ctx;
-    }
-
     readNumberInput(id, fallback) {
         const input = document.getElementById(id);
         if (!input) return fallback;
@@ -201,8 +162,12 @@ class PreviewRenderer {
         return parseBoundedNumber(input.value, fallback, min, max);
     }
 
+    get displayGap() {
+        return this.options.showGaps ? this.gridManager.config.gap : 0;
+    }
+
     render() {
-        this.renderTransform = { bbox: this.gridManager.getBoundingBoxMm() };
+        this.renderTransform = { bbox: this.gridManager.getBoundingBoxMm(this.displayGap) };
         try {
             this.renderFrame();
         } finally {
@@ -215,11 +180,7 @@ class PreviewRenderer {
         const h = this.canvas.height;
         this.ctx.clearRect(0, 0, w, h);
 
-        if (w === 0 || h === 0) {
-            this.amsQuantizer.cancel();
-            this.amsCurrentSceneKey = null;
-            return;
-        }
+        if (!w || !h) return;
 
         // 1. Rysuj wybrane tło
         this.drawBackground(w, h);
@@ -228,38 +189,29 @@ class PreviewRenderer {
         const hexSize = this.gridManager.config.hexSize;
         const orientation = this.gridManager.config.orientation;
         const stagger = this.gridManager.config.stagger || 'left';
-        const gap = this.options.showGaps ? this.gridManager.config.gap : 0;
+        const gap = this.displayGap;
         const hexDim = HexMath.getHexDimensions(hexSize, orientation);
 
-        // Offscreen canvas dla samych elementów heksów i ramek (dzięki temu kwantyzacja nie uszkodzi tła ani etykiet)
-        const useOffscreen = this.options.amsPreview;
-        const cacheKey = useOffscreen ? this.getAmsCacheKey(activeCells, w, h) : null;
-        const cacheHit = useOffscreen && this.amsCacheKey === cacheKey;
-        this.amsCurrentSceneKey = cacheKey;
-        if (!useOffscreen) {
-            this.amsQuantizer.cancel();
-            this.amsCurrentSceneKey = null;
-        }
-        const drawCtx = useOffscreen ? (cacheHit ? null : this.createOffscreenCtx(w, h)) : this.ctx;
+        const drawCtx = this.ctx;
 
         // 2. Rysuj ramki pod spodem (jeśli włączone)
-        if (this.options.showFrames && drawCtx) {
+        if (this.options.showFrames) {
             const frameType = document.getElementById('frame-type').value;
             const frameWidth = this.readNumberInput('frame-width', 2);
             const clearance = this.readNumberInput('frame-clearance', 0.2);
             const frameColor = document.getElementById('frame-color').value || '#1a1a1a';
             activeCells.forEach(cell => {
-                this.drawFrame(drawCtx, cell, hexSize, orientation, gap, frameType, frameWidth, clearance, frameColor);
+                this.drawFrame(drawCtx, cell, gap, frameType, frameWidth, clearance, frameColor);
             });
         }
 
         // 3. Rysuj obrazy heksów
-        if (drawCtx) activeCells.forEach(cell => {
+        activeCells.forEach(cell => {
             const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
             const screenCenter = this.worldToScreen(posMm.x, posMm.y);
 
-            const verticesMm = HexMath.getCellVertices(cell, this.gridManager.config);
-            const vertices = verticesMm.map(v => this.worldToScreen(v.x, v.y));
+            const shift = HexMath.getGapTranslation(cell, this.gridManager.config, gap);
+            const vertices = this.gridManager.getCellVertices(cell).map(v => this.worldToScreen(v.x + shift.x, v.y + shift.y));
 
             drawCtx.save();
             
@@ -271,14 +223,6 @@ class PreviewRenderer {
             });
             drawCtx.closePath();
             
-            // Cień heksów na ścianie dla fotorealizmu (tylko na nie-transparentnym tle i bez offscreen)
-            if (!useOffscreen && this.options.background !== 'transparent') {
-                drawCtx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-                drawCtx.shadowBlur = 12 * this.zoom;
-                drawCtx.shadowOffsetX = 3 * this.zoom;
-                drawCtx.shadowOffsetY = 6 * this.zoom;
-            }
-
             drawCtx.clip();
 
             if (cell.imageId && this.imageProcessor.getImage(cell.imageId)) {
@@ -311,57 +255,16 @@ class PreviewRenderer {
             drawCtx.restore();
         });
 
-        // 4. Jeśli używamy offscreen, zastosuj kwantyzację kolorów i nałóż na główny canvas
-        if (useOffscreen) {
-            if (cacheHit) {
-                this.amsQuantizer.cancelPending();
-            } else if (!this.amsWorkerEnabled || this.amsWorkerFailed || typeof Worker === 'undefined') {
-                this.quantizeAndCacheOffscreen(cacheKey, w, h, parseInt(this.options.amsColors) || 4);
-            } else {
-                const colorCount = parseInt(this.options.amsColors) || 4;
-                const accepted = this.amsQuantizer.submit({
-                    key: cacheKey,
-                    width: w,
-                    height: h,
-                    colorCount,
-                    readImageData: () => this.offscreenCanvas.getContext('2d').getImageData(0, 0, w, h)
-                });
-                if (!accepted) {
-                    this.amsWorkerFailed = true;
-                    this.quantizeAndCacheOffscreen(cacheKey, w, h, colorCount);
-                }
-            }
-
-            // Keep navigation responsive: while quantization is pending, show the
-            // current scene's raw raster rather than an old scene's AMS cache.
-            const rasterCanvas = cacheHit || this.amsCacheKey === cacheKey
-                ? this.amsCacheCanvas
-                : this.offscreenCanvas;
-            
-            // Narysuj cień dla całej warstwy płytek na głównym płótnie
-            if (this.options.background !== 'transparent') {
-                this.ctx.save();
-                this.ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-                this.ctx.shadowBlur = 16 * this.zoom;
-                this.ctx.shadowOffsetX = 4 * this.zoom;
-                this.ctx.shadowOffsetY = 8 * this.zoom;
-                this.ctx.drawImage(rasterCanvas, 0, 0);
-                this.ctx.restore();
-            } else {
-                this.ctx.drawImage(rasterCanvas, 0, 0);
-            }
-        }
-
-        // 5. Rysuj uchwyty ścienne (Y-splitters) jeśli włączone
-        if (this.options.showHangers) {
-            this.drawHangers(this.ctx);
-        }
- 
         // 6. Rysuj etykiety (na samym końcu, zawsze na głównym płótnie, by były ostre)
         if (this.options.showLabels) {
             activeCells.forEach(cell => {
-                const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
-                const screenPos = this.worldToScreen(posMm.x, posMm.y);
+                const vertices = this.gridManager.getCellVertices(cell);
+                if (!vertices.length) return;
+                const shift = HexMath.getGapTranslation(cell, this.gridManager.config, gap);
+                const center = vertices.reduce((sum, point) => ({
+                    x: sum.x + point.x / vertices.length, y: sum.y + point.y / vertices.length
+                }), shift);
+                const screenPos = this.worldToScreen(center.x, center.y);
 
                 this.ctx.save();
                 this.ctx.fillStyle = '#ffffff';
@@ -386,83 +289,6 @@ class PreviewRenderer {
         }
     }
 
-    getAmsCacheKey(activeCells, width, height) {
-        const frameSettings = this.options.showFrames ? [
-            document.getElementById('frame-type')?.value,
-            document.getElementById('frame-width')?.value,
-            document.getElementById('frame-clearance')?.value,
-            document.getElementById('frame-color')?.value
-        ] : null;
-        const cells = activeCells.map(cell => {
-            const imageObj = cell.imageId ? this.imageProcessor.getImage(cell.imageId) : null;
-            const source = imageObj ? this.imageProcessor.getRotatedCanvasOrImage(imageObj) : null;
-            let sourceId = 0;
-            if (source) {
-                sourceId = this.sourceIds.get(source);
-                if (!sourceId) {
-                    sourceId = this.nextSourceId++;
-                    this.sourceIds.set(source, sourceId);
-                }
-            }
-            const crop = cell.cropRegion;
-            return [cell.q, cell.r, cell.imageId, sourceId, crop?.x, crop?.y, crop?.w, crop?.h];
-        });
-
-        return JSON.stringify([
-            width, height, this.options.amsColors, this.options.showGaps, this.options.showFrames,
-            this.options.background, this.zoom, this.panX, this.panY, this.gridManager.config,
-            frameSettings, cells
-        ]);
-    }
-
-    createAmsWorker() {
-        return new Worker(new URL('./ams-quantizer.worker.js', import.meta.url), { type: 'module' });
-    }
-
-    isCurrentAmsJob(job) {
-        if (!this.options.amsPreview || this.canvas.width !== job.width || this.canvas.height !== job.height) return false;
-        return this.getAmsCacheKey(this.gridManager.getActiveCells(), job.width, job.height) === job.key;
-    }
-
-    handleAmsWorkerResult(result) {
-        if (!this.isCurrentAmsJob(result)) return;
-        const pixels = result.pixels instanceof ArrayBuffer
-            ? new Uint8ClampedArray(result.pixels)
-            : result.pixels;
-        if (!(pixels instanceof Uint8ClampedArray) || pixels.byteLength !== result.width * result.height * 4) return;
-
-        if (this.amsCacheCanvas.width !== result.width || this.amsCacheCanvas.height !== result.height) {
-            this.amsCacheCanvas.width = result.width;
-            this.amsCacheCanvas.height = result.height;
-        }
-        const cacheCtx = this.amsCacheCanvas.getContext('2d');
-        const imageData = cacheCtx.createImageData(result.width, result.height);
-        imageData.data.set(pixels);
-        cacheCtx.putImageData(imageData, 0, 0);
-        this.amsCacheKey = result.key;
-        this.scheduleRender();
-    }
-
-    handleAmsWorkerError(_error, job) {
-        this.amsWorkerFailed = true;
-        if (job && this.isCurrentAmsJob(job)) this.scheduleRender();
-    }
-
-    quantizeAndCacheOffscreen(key, width, height, colorCount) {
-        this.quantizeColors(this.offscreenCanvas.getContext('2d'), width, height, colorCount);
-        if (this.amsCacheCanvas.width !== width || this.amsCacheCanvas.height !== height) {
-            this.amsCacheCanvas.width = width;
-            this.amsCacheCanvas.height = height;
-        }
-        const cacheCtx = this.amsCacheCanvas.getContext('2d');
-        cacheCtx.clearRect(0, 0, width, height);
-        cacheCtx.drawImage(this.offscreenCanvas, 0, 0);
-        this.amsCacheKey = key;
-    }
-
-    /**
-     * Rysuje linijkę (miarkę) u góry i z lewej strony ekranu podglądu
-     */
     drawRulers(w, h) {
         const rulerSize = 26;
 
@@ -585,7 +411,7 @@ class PreviewRenderer {
         this.ctx.stroke();
 
         // Jednostka "mm" w narożniku
-        this.ctx.fillStyle = '#00e5ff';
+        this.ctx.fillStyle = '#9dc9ee';
         this.ctx.font = "bold 9px 'Inter', sans-serif";
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
@@ -597,21 +423,13 @@ class PreviewRenderer {
     /**
      * Rysuje ramkę pod heksagonem z wizualizacją złączy
      */
-    drawFrame(ctx, cell, hexSize, orientation, gap, type, frameWidthMm, clearanceMm, frameColor) {
+    drawFrame(ctx, cell, gap, type, frameWidthMm, clearanceMm, frameColor) {
         const { innerVerticesMm, outerVerticesMm } = FrameGenerator.getFrameVerticesMm(cell, this.gridManager, frameWidthMm, clearanceMm);
-
-        const innerVertices = innerVerticesMm.map(v => this.worldToScreen(v.x, v.y));
-        const outerVertices = outerVerticesMm.map(v => this.worldToScreen(v.x, v.y));
-
+        const shift = HexMath.getGapTranslation(cell, this.gridManager.config, gap);
+        const toScreen = point => this.worldToScreen(point.x + shift.x, point.y + shift.y);
+        const innerVertices = innerVerticesMm.map(toScreen);
+        const outerVertices = outerVerticesMm.map(toScreen);
         ctx.save();
-        
-        // Dodaj cień do samej ramki (tylko gdy rysujemy bezpośrednio na ctx)
-        if (ctx === this.ctx && this.options.background !== 'transparent') {
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-            ctx.shadowBlur = 16 * this.zoom;
-            ctx.shadowOffsetX = 4 * this.zoom;
-            ctx.shadowOffsetY = 8 * this.zoom;
-        }
 
         if (type === 'backing') {
             ctx.fillStyle = frameColor;
@@ -669,15 +487,6 @@ class PreviewRenderer {
         }
 
         ctx.restore();
-    }
-
-    /**
-     * Szybki algorytm K-Means do kwantyzacji kolorów na podglądzie
-     */
-    quantizeColors(offscreenCtx, w, h, colorCount) {
-        const imageData = offscreenCtx.getImageData(0, 0, w, h);
-        quantizeRgbaPixels(imageData.data, colorCount);
-        offscreenCtx.putImageData(imageData, 0, 0);
     }
 
     /**
@@ -741,139 +550,6 @@ class PreviewRenderer {
             }
             this.ctx.drawImage(this.wallTextureCanvas, 0, 0);
         }
-    }
-
-    getHangerJunctions() {
-        const activeCells = this.gridManager.getActiveCells();
-        const hexSize = this.gridManager.config.hexSize;
-        const orientation = this.gridManager.config.orientation;
-        const stagger = this.gridManager.config.stagger || 'left';
-        
-        const vertexMap = new Map();
-        
-        activeCells.forEach(cell => {
-            const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, 0, stagger);
-            const vertices = HexMath.getHexVertices(posMm.x, posMm.y, hexSize, orientation);
-            
-            vertices.forEach(v => {
-                const key = `${v.x.toFixed(2)},${v.y.toFixed(2)}`;
-                if (!vertexMap.has(key)) {
-                    vertexMap.set(key, {
-                        x: v.x,
-                        y: v.y,
-                        cells: []
-                    });
-                }
-                const entry = vertexMap.get(key);
-                entry.cells.push({
-                    cell: cell,
-                    center: posMm
-                });
-            });
-        });
-        
-        const junctions = [];
-        for (const [key, entry] of vertexMap.entries()) {
-            if (entry.cells.length === 3) {
-                junctions.push({
-                    x: entry.x,
-                    y: entry.y,
-                    cells: entry.cells
-                });
-            }
-        }
-        
-        return junctions;
-    }
-
-    drawHangers(ctx) {
-        const junctions = this.getHangerJunctions();
-        if (junctions.length === 0) return;
-
-        const gap = parseBoundedNumber(this.gridManager.config.gap, 0, 0, 50);
-        const hexSize = parseBoundedNumber(this.gridManager.config.hexSize, 100, 10, 500);
-        
-        const clearance = this.readNumberInput('hanger-clearance', 0.3);
-        const configuredArmWidth = this.readNumberInput('hanger-arm-width', 12);
-        const configuredArmLength = this.readNumberInput('hanger-arm-length', 30);
-        const ridgeHeightMm = this.readNumberInput('hanger-ridge-height', 2.0);
-
-        // Zabezpieczenie przed zbyt małymi heksami - ramiona nie mogą wykraczać poza obrys heksa (tak samo jak w hanger-generator.js)
-        const maxArmLength = hexSize * 0.95;
-        const armLengthMm = Math.min(configuredArmLength, maxArmLength);
-        const armWidthMm = Math.min(configuredArmWidth, hexSize * 0.8);
-
-        const ridgeWidthMm = Math.max(0, gap - clearance);
-
-        ctx.save();
-        
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
-
-        junctions.forEach(j => {
-            const screenCenter = this.worldToScreen(j.x, j.y);
-            
-            const vectors = j.cells.map(c => ({
-                x: c.center.x - j.x,
-                y: c.center.y - j.y
-            }));
-            
-            const armDirs = [];
-            for (let i = 0; i < 3; i++) {
-                const next = (i + 1) % 3;
-                const sumX = vectors[i].x + vectors[next].x;
-                const sumY = vectors[i].y + vectors[next].y;
-                const len = Math.sqrt(sumX*sumX + sumY*sumY);
-                if (len > 0) {
-                    armDirs.push({ x: sumX / len, y: sumY / len });
-                }
-            }
-
-            const armWidthPx = armWidthMm * this.zoom;
-            const armLengthPx = armLengthMm * this.zoom;
-            const centerRadiusPx = (armWidthMm / 2) * this.zoom;
-
-            ctx.lineWidth = armWidthPx;
-            ctx.lineCap = 'butt';
-            ctx.strokeStyle = 'rgba(255, 110, 0, 0.45)';
-            ctx.fillStyle = 'rgba(255, 110, 0, 0.45)';
-
-            // Cylinder centralny
-            ctx.beginPath();
-            ctx.arc(screenCenter.x, screenCenter.y, centerRadiusPx, 0, 2*Math.PI);
-            ctx.fill();
-
-            // Trzy ramiona
-            armDirs.forEach(dir => {
-                const endX = screenCenter.x + dir.x * armLengthPx;
-                const endY = screenCenter.y + dir.y * armLengthPx;
-                ctx.beginPath();
-                ctx.moveTo(screenCenter.x, screenCenter.y);
-                ctx.lineTo(endX, endY);
-                ctx.stroke();
-            });
-
-            // Separatory (ridges)
-            if (ridgeWidthMm > 0 && ridgeHeightMm > 0) {
-                const ridgeWidthPx = ridgeWidthMm * this.zoom;
-                ctx.lineWidth = Math.max(1.5, ridgeWidthPx);
-                ctx.lineCap = 'butt';
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-                
-                armDirs.forEach(dir => {
-                    const endX = screenCenter.x + dir.x * armLengthPx;
-                    const endY = screenCenter.y + dir.y * armLengthPx;
-                    ctx.beginPath();
-                    ctx.moveTo(screenCenter.x, screenCenter.y);
-                    ctx.lineTo(endX, endY);
-                    ctx.stroke();
-                });
-            }
-        });
-
-        ctx.restore();
     }
 
     adjustColorBrightness(hex, percent) {

@@ -1,6 +1,22 @@
 import HexMath from './hex-math.js';
 import { assertImageDimensions, PROJECT_LIMITS } from './project-validation.js';
 
+export function getTileRaster(cell, config) {
+    const vertices = HexMath.getCellVertices(cell, config);
+    if (!vertices.length) return null;
+    const bounds = HexMath.getPolygonBounds(vertices);
+    const nominal = HexMath.getHexDimensions(config.hexSize, config.orientation);
+    const scale = config.dpi === 'original' && cell.cropRegion
+        ? cell.cropRegion.w / nominal.width
+        : HexMath.mmToPixels(1, config.dpi === 'original' ? 300 : config.dpi);
+    if (!Number.isFinite(scale) || scale <= 0) return null;
+    return {
+        vertices, bounds, nominal,
+        width: Math.max(1, Math.round(bounds.width * scale)),
+        height: Math.max(1, Math.round(bounds.height * scale))
+    };
+}
+
 class ImageProcessor {
     constructor() {
         // Obrazy załadowane przez użytkownika
@@ -174,7 +190,7 @@ class ImageProcessor {
         const imageObj = this.getImage(imageId);
         if (!imageObj) return;
 
-        const bbox = gridManager.getBoundingBoxMm();
+        const bbox = gridManager.getImageBounds();
         if (bbox.width === 0 || bbox.height === 0) return;
 
         const imgWidth = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
@@ -268,7 +284,7 @@ class ImageProcessor {
         const imageObj = this.getImage(imageId);
         if (!imageObj) return;
 
-        const bbox = gridManager.getBoundingBoxOfCells(groupCells);
+        const bbox = gridManager.getImageBounds(groupCells);
         if (bbox.width === 0 || bbox.height === 0) return;
 
         const imgWidth = imageObj.rotatedCanvas ? imageObj.rotatedCanvas.width : imageObj.width;
@@ -392,86 +408,40 @@ class ImageProcessor {
         const imageObj = this.getImage(cell.imageId);
         if (!imageObj) return null;
 
-        let dpi = gridManager.config.dpi;
-        const hexSize = gridManager.config.hexSize;
-        const orientation = gridManager.config.orientation;
-        const gap = gridManager.config.gap;
-        const stagger = gridManager.config.stagger || 'left';
-        const hexDim = HexMath.getHexDimensions(hexSize, orientation);
-        const crop = cell.cropRegion;
-
-        let pixelScale;
-        if (dpi === 'original' && crop) {
-            pixelScale = crop.w / hexDim.width;
-        } else {
-            if (dpi === 'original') dpi = 300;
-            pixelScale = HexMath.mmToPixels(1, dpi);
-        }
-
-        const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
-        
-        // Pobierz wierzchołki w skali mm (bez DPI) z uwzględnieniem obcinania
-        const verticesMm = HexMath.getCellVertices(cell, gridManager.config);
-        
-        if (verticesMm.length === 0) return null;
-
-        // Oblicz bounding box wierzchołków w mm
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        verticesMm.forEach(v => {
-            if (v.x < minX) minX = v.x;
-            if (v.x > maxX) maxX = v.x;
-            if (v.y < minY) minY = v.y;
-            if (v.y > maxY) maxY = v.y;
-        });
-
-        const wMm = maxX - minX;
-        const hMm = maxY - minY;
-
-        const canvasW = Math.round(wMm * pixelScale);
-        const canvasH = Math.round(hMm * pixelScale);
-
+        const config = gridManager.config;
+        const raster = getTileRaster(cell, config);
+        if (!raster) return null;
+        const { vertices, bounds, nominal, width, height } = raster;
+        const center = HexMath.axialToPixel(cell.q, cell.r, config.hexSize, config.orientation, config.gap, config.stagger);
         const canvas = document.createElement('canvas');
-        canvas.width = canvasW;
-        canvas.height = canvasH;
-
+        canvas.width = width;
+        canvas.height = height;
         const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
 
-        // 1. Narysuj hexagonalną/wielokątną ścieżkę cięcia
         ctx.beginPath();
-        verticesMm.forEach((v, idx) => {
-            const pxX = (v.x - minX) * pixelScale;
-            const pxY = (v.y - minY) * pixelScale;
-            if (idx === 0) ctx.moveTo(pxX, pxY);
-            else ctx.lineTo(pxX, pxY);
+        vertices.forEach((point, index) => {
+            const x = (point.x - bounds.minX) * width / bounds.width;
+            const y = (point.y - bounds.minY) * height / bounds.height;
+            if (index === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
         });
         ctx.closePath();
         ctx.clip();
 
-        // 2. Wytnij odpowiedni fragment obrazu i narysuj go na wyjściowym canvasie
-        const sourceElement = this.getRotatedCanvasOrImage(imageObj);
-        if (crop) {
-            // Oblicz przesunięcie w mm względem lewego-górnego rogu unclipped heksa
-            const offsetXMm = minX - (posMm.x - hexDim.width / 2);
-            const offsetYMm = minY - (posMm.y - hexDim.height / 2);
-            
-            // Przelicz skale pikseli obrazu źródłowego na mm
-            const imgPixelScaleX = crop.w / hexDim.width;
-            const imgPixelScaleY = crop.h / hexDim.height;
-            
-            const sourceX = crop.x + offsetXMm * imgPixelScaleX;
-            const sourceY = crop.y + offsetYMm * imgPixelScaleY;
-            const sourceW = wMm * imgPixelScaleX;
-            const sourceH = hMm * imgPixelScaleY;
-
-            ctx.drawImage(
-                sourceElement,
-                sourceX, sourceY, sourceW, sourceH, // Skąd (z obrazu źródłowego)
-                0, 0, canvasW, canvasH           // Dokąd (na cały wyjściowy canvas)
-            );
-        } else {
-            // Failsafe: cover fit
-            ctx.drawImage(sourceElement, 0, 0, canvasW, canvasH);
-        }
+        const source = this.getRotatedCanvasOrImage(imageObj);
+        const crop = cell.cropRegion ?? {
+            x: 0, y: 0, w: source.naturalWidth || source.width, h: source.naturalHeight || source.height
+        };
+        // The crop is anchored to the nominal hex so cutting only masks the source.
+        const offsetX = bounds.minX - (center.x - nominal.width / 2);
+        const offsetY = bounds.minY - (center.y - nominal.height / 2);
+        const scaleX = crop.w / nominal.width;
+        const scaleY = crop.h / nominal.height;
+        ctx.drawImage(source,
+            crop.x + offsetX * scaleX, crop.y + offsetY * scaleY,
+            bounds.width * scaleX, bounds.height * scaleY,
+            0, 0, width, height);
 
         return canvas;
     }

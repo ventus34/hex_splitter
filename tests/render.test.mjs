@@ -47,21 +47,18 @@ async function showPreview(page) {
     await page.waitForFunction(() => window.preview?.renderRequested === false);
 }
 
-test('planner keyboard arrows select cells and Space toggles the selected cell', async t => {
+test('planner keyboard arrows select cells and Space opens their controls', async t => {
     const page = await openPage(t);
     const canvas = page.locator('#planner-canvas');
     await canvas.focus();
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Space');
 
-    await page.waitForFunction(() => {
-        const cell = window.gridManager.getAllCells().find(item => item.col === 1 && item.row === 0);
-        return cell && !cell.enabled;
-    });
-    assert.equal(await page.locator('#planner-live-status').textContent(), 'B1: inactive');
+    assert.equal(await page.locator('#hex-editor-title').textContent(), 'Hex B1');
+    assert.equal(await page.evaluate(() => window.gridManager.cells.size), 12);
 });
 
-test('touch tap toggles a cell and the mobile canvas stays within the viewport', async t => {
+test('touch tap selects a cell and the mobile canvas stays within the viewport', async t => {
     const page = await openPage(t, {
         viewport: { width: 390, height: 844 },
         deviceScaleFactor: 1,
@@ -93,94 +90,8 @@ test('touch tap toggles a cell and the mobile canvas stays within the viewport',
     assert.ok(layout.canvas.width > 0 && layout.canvas.right <= layout.viewportWidth + 1);
 
     await page.touchscreen.tap(canvasBounds.x + centerScreen.x, canvasBounds.y + centerScreen.y);
-    await page.waitForFunction(() => {
-        const cell = window.gridManager.getAllCells().find(item => item.col === 0 && item.row === 0);
-        return cell && !cell.enabled;
-    });
-});
-
-test('AMS reuses an unchanged raster and invalidates it when cells or crops change', async t => {
-    const page = await openPage(t);
-    await showPreview(page);
-
-    const result = await page.evaluate(() => {
-        const preview = window.preview;
-        preview.options = {
-            ...preview.options,
-            amsPreview: true,
-            amsColors: 4,
-            showFrames: false,
-            showLabels: false,
-            showRuler: false,
-            showHangers: false
-        };
-        // Keep this cache assertion synchronous; worker scheduling has focused
-        // coverage in tests/ams-worker.test.mjs.
-        preview.amsWorkerEnabled = false;
-
-        const quantize = preview.quantizeColors.bind(preview);
-        preview.__quantizeCount = 0;
-        preview.quantizeColors = (...args) => {
-            preview.__quantizeCount++;
-            return quantize(...args);
-        };
-
-        preview.render();
-        const initialKey = preview.amsCacheKey;
-        preview.render();
-        const afterRepeat = preview.__quantizeCount;
-
-        const cell = window.gridManager.getAllCells()[0];
-        cell.enabled = false;
-        preview.render();
-        const afterActiveChange = preview.__quantizeCount;
-        const activeKey = preview.amsCacheKey;
-
-        const source = document.createElement('canvas');
-        source.width = 40;
-        source.height = 20;
-        const sourceCtx = source.getContext('2d');
-        sourceCtx.fillStyle = '#e22';
-        sourceCtx.fillRect(0, 0, 40, 20);
-        const id = 'render-cache-fixture';
-        window.imageProcessor.images.set(id, {
-            id,
-            name: 'render-cache-fixture',
-            imgElement: source,
-            width: source.width,
-            height: source.height,
-            rotatedCanvas: null
-        });
-        cell.enabled = true;
-        cell.imageId = id;
-        cell.cropRegion = { x: 0, y: 0, w: 20, h: 10 };
-        preview.render();
-        const afterImageAssignment = preview.__quantizeCount;
-        const imageKey = preview.amsCacheKey;
-
-        cell.cropRegion = { ...cell.cropRegion, x: 1 };
-        preview.render();
-        const afterCropChange = preview.__quantizeCount;
-        const cropKey = preview.amsCacheKey;
-
-        return {
-            afterRepeat,
-            afterActiveChange,
-            afterImageAssignment,
-            afterCropChange,
-            activeKeyChanged: activeKey !== initialKey,
-            imageKeyChanged: imageKey !== activeKey,
-            cropKeyChanged: cropKey !== imageKey
-        };
-    });
-
-    assert.equal(result.afterRepeat, 1, 'unchanged preview should reuse the cached AMS raster');
-    assert.equal(result.afterActiveChange, 2, 'changing active cells should requantize');
-    assert.equal(result.afterImageAssignment, 3, 'assigning a new source image should requantize');
-    assert.equal(result.afterCropChange, 4, 'changing the crop should requantize');
-    assert.equal(result.activeKeyChanged, true);
-    assert.equal(result.imageKeyChanged, true);
-    assert.equal(result.cropKeyChanged, true);
+    assert.equal(await page.locator('#hex-editor-title').textContent(), 'Hex A1');
+    assert.equal(await page.evaluate(() => window.gridManager.cells.size), 12);
 });
 
 test('preview rendering preserves zero frame clearance and clamps other values to UI limits', async t => {
@@ -188,21 +99,44 @@ test('preview rendering preserves zero frame clearance and clamps other values t
     await showPreview(page);
     const values = await page.evaluate(() => {
         const preview = window.preview;
-        preview.options = { ...preview.options, amsPreview: false, showFrames: true, showLabels: false, showRuler: false };
+        preview.options = { ...preview.options, showFrames: true, showLabels: false, showRuler: false };
         document.getElementById('frame-width').value = '0';
         document.getElementById('frame-clearance').value = '0';
         let observed = null;
-        preview.drawFrame = (...args) => { observed = { width: args[6], clearance: args[7] }; };
+        preview.drawFrame = (...args) => { observed = { width: args[4], clearance: args[5] }; };
         preview.render();
-        document.getElementById('hanger-clearance').value = '0';
-        document.getElementById('hanger-arm-width').value = '0';
-        return {
-            frame: observed,
-            hangerClearance: preview.readNumberInput('hanger-clearance', 0.3),
-            hangerArmWidth: preview.readNumberInput('hanger-arm-width', 12)
-        };
+        return observed;
     });
-    assert.deepEqual(values.frame, { width: 1, clearance: 0 });
-    assert.equal(values.hangerClearance, 0);
-    assert.equal(values.hangerArmWidth, 5);
+    assert.deepEqual(values, { width: 1, clearance: 0 });
+});
+
+test('preview with gaps hidden draws a cut tile and its image at the same position', async t => {
+    const page = await openPage(t);
+    await showPreview(page);
+    const result = await page.evaluate(async () => {
+        const { default: HexMath } = await import('/js/hex-math.js');
+        const { gridManager: grid, imageProcessor, preview } = window;
+        grid.updateConfig({ gap: 50 });
+        const target = grid.getAllCells().find(cell => cell.label === 'D2');
+        grid.setCellShape(target, { kind: 'cuts', depths: [50, 0, 0, 0, 0, 0] });
+        const source = document.createElement('canvas');
+        source.width = source.height = 40;
+        const ctx = source.getContext('2d');
+        ctx.fillStyle = '#f72918';
+        ctx.fillRect(0, 0, 40, 40);
+        imageProcessor.images.set('preview-fixture', { imgElement: source, width: 40, height: 40 });
+        target.imageId = 'preview-fixture';
+        Object.assign(preview.options, { showGaps: false, showFrames: false, showLabels: false, showRuler: false });
+        preview.centerGrid();
+        preview.render();
+
+        const shift = HexMath.getGapTranslation(target, grid.config, 0);
+        const polygon = grid.getCellVertices(target);
+        const center = polygon.reduce((point, vertex) => ({
+            x: point.x + vertex.x / polygon.length, y: point.y + vertex.y / polygon.length
+        }), shift);
+        const { x, y } = preview.worldToScreen(center.x, center.y);
+        return [...preview.ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data];
+    });
+    assert.deepEqual(result, [247, 41, 24, 255]);
 });

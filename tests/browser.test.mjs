@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFile, stat } from 'node:fs/promises';
 import { after, afterEach, before, beforeEach, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -149,22 +148,19 @@ test('project save, browser reload, and import preserve image rotation', async (
 
 test('valid zero settings survive state save and reload', async () => {
   await setNumber('#hex-gap', 0);
-  await setNumber('#relief-blur', 0);
   await page.waitForFunction(() => window.gridManager.config.gap === 0);
-  assert.equal(await page.locator('#relief-blur').inputValue(), '0');
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.gridManager?.config.gap === 0);
   assert.equal(await page.locator('#hex-gap').inputValue(), '0');
-  assert.equal(await page.locator('#relief-blur').inputValue(), '0');
   const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('hexsplitter_project_layout')));
   assert.equal(persisted.grid.gap, 0);
-  assert.equal(persisted.relief.blur, 0);
 });
 
 test('bad, incomplete, missing-image, and corrupt-image imports preserve current project', async () => {
   await uploadImage('known-image.svg');
   await setNumber('#grid-cols', 2);
+  await page.locator('#btn-create-grid').click();
   await page.waitForFunction(() => window.gridManager.config.columns === 2);
 
   const missingProjectZip = await new JSZip().generateAsync({ type: 'nodebuffer' });
@@ -252,10 +248,11 @@ test('untrusted image filename is rendered as text in the assembly guide', async
   assert.match(await page.locator('#instructions-table-body').textContent(), /<img id="xss-probe"/);
 });
 
-test('image, frame, and relief downloads contain the expected archive entries', async () => {
+test('image and frame downloads contain the expected archive entries', async () => {
   await uploadImage();
   await setNumber('#grid-cols', 1);
   await setNumber('#grid-rows', 1);
+  await page.locator('#btn-create-grid').click();
   await page.waitForFunction(() => window.gridManager.getActiveCells().length === 1 && window.gridManager.getActiveCells()[0].imageId);
   await page.locator('#export-dpi').selectOption('original');
   await captureDownloads();
@@ -272,31 +269,13 @@ test('image, frame, and relief downloads contain the expected archive entries', 
   const frameNames = Object.keys(framesZip.files).filter(name => !framesZip.files[name].dir);
   assert.ok(frameNames.some(name => name.toLowerCase().endsWith('.stl')), `frame archive has no STL: ${frameNames.join(', ')}`);
 
-  const reliefDownload = await downloadBytes('#btn-export-3d-hexes-stl', 2);
-  const reliefZip = await readZip(reliefDownload.bytes);
-  const reliefNames = Object.keys(reliefZip.files).filter(name => !reliefZip.files[name].dir);
-  assert.ok(reliefNames.some(name => name.toLowerCase().endsWith('.stl')), `relief archive has no STL: ${reliefNames.join(', ')}`);
-  const stl = await reliefZip.file(reliefNames[0]).async('uint8array');
-  const stlBytes = Buffer.from(stl);
-  const triangleCount = stlBytes.readUInt32LE(80);
-  assert.ok(triangleCount > 0);
-  assert.equal(stlBytes.length, 84 + triangleCount * 50);
-});
 
-test('native download helper delivers the hanger STL file', async () => {
-  const downloadPromise = page.waitForEvent('download');
-  await page.locator('#btn-export-hanger').click();
-  const download = await downloadPromise;
-  assert.equal(download.suggestedFilename(), 'hexsplitter_uchwyt_y.stl');
-  const path = await download.path();
-  assert.ok(path);
-  assert.ok((await stat(path)).size > 0);
-  assert.match((await readFile(path, 'utf8')).slice(0, 64), /^solid symmetric_y_hanger/);
 });
 
 test('grid inputs respect documented bounds', async () => {
   await setNumber('#grid-cols', 100);
   await setNumber('#grid-rows', -10);
+  await page.locator('#btn-create-grid').click();
   await setNumber('#hex-size', 900);
   await page.waitForTimeout(50);
   const config = await page.evaluate(() => ({
@@ -329,6 +308,7 @@ test('planner canvas remains visible at a 390px mobile viewport', async () => {
 test('renderers calculate grid bounds a constant number of times as the grid grows', async () => {
   await setNumber('#grid-cols', 25);
   await setNumber('#grid-rows', 25);
+  await page.locator('#btn-create-grid').click();
   await page.waitForFunction(() => window.gridManager.getAllCells().length === 625);
   const calls = await page.evaluate(() => {
     const grid = window.gridManager;
@@ -362,6 +342,7 @@ test('startup skips an undecodable saved image without deleting its original dat
 
 test('an old pending backup cannot replace a newer durable project revision', async () => {
   await setNumber('#grid-cols', 5);
+  await page.locator('#btn-create-grid').click();
   await waitForAsyncPageCondition(page, async () => {
     const { default: Store } = await import('/js/project-store.js?v=1.0.3');
     return (await Store.getLayout())?.grid.columns === 5;
@@ -380,4 +361,103 @@ test('an old pending backup cannot replace a newer durable project revision', as
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.canEditProject?.() && window.gridManager.config.columns === 5);
   assert.equal(await page.locator('#grid-cols').inputValue(), '5');
+});
+
+test('canvas neighbor, manual shape, guide and full project share the explicit layout', async () => {
+  await uploadImage();
+  const canvas = page.locator('#planner-canvas');
+  await canvas.focus();
+  await page.keyboard.press('Space');
+  const oldCrop = await page.evaluate(() => structuredClone(window.gridManager.getCell(0, 0).cropRegion));
+  await page.locator('#hex-shape-editor summary').click();
+  await page.locator('#hex-shape-mode').selectOption('cuts');
+  const fields = page.locator('#hex-cut-depths input');
+  await fields.nth(0).fill('50');
+  await fields.nth(3).fill('50');
+  assert.ok(await page.locator('#btn-apply-hex-shape').isDisabled());
+  await fields.nth(3).fill('18');
+  await page.locator('#btn-apply-hex-shape').click();
+  assert.deepEqual(await page.evaluate(() => window.gridManager.getCell(0, 0).cropRegion), oldCrop);
+  await page.locator('#hex-shape-editor summary').click();
+
+  const neighbor = await page.evaluate(async () => {
+    const { default: HexMath } = await import('/js/hex-math.js');
+    const { gridManager, planner } = window;
+    const candidate = gridManager.getAvailableNeighbors(gridManager.getCell(0, 0)).find(cell => cell.col < 0 && cell.row === 0);
+    const { hexSize, orientation, gap, stagger } = gridManager.config;
+    const position = HexMath.axialToPixel(candidate.q, candidate.r, hexSize, orientation, gap, stagger);
+    // Scroll and zoom remain independent of the layout. Move the candidate into view before clicking.
+    planner.revealCell(candidate);
+    const screen = planner.worldToScreen(position.x, position.y);
+    return { q: candidate.q, r: candidate.r, ...screen };
+  });
+  await canvas.click({ position: { x: neighbor.x, y: neighbor.y } });
+  await page.waitForFunction(({ q, r }) => window.gridManager.getCell(q, r)?.shape.kind === 'full', neighbor);
+  assert.equal(await page.evaluate(() => window.gridManager.cells.size), 13);
+
+  await page.locator('.tab-btn[data-tab="tab-instructions"]').click();
+  const row = page.locator('#instructions-table-body tr').filter({ has: page.getByRole('rowheader', { name: 'A1', exact: true }) });
+  await row.waitFor();
+  const dimensions = await page.evaluate(() => {
+    const vertices = window.gridManager.getCellVertices(window.gridManager.getCell(0, 0));
+    const width = Math.max(...vertices.map(point => point.x)) - Math.min(...vertices.map(point => point.x));
+    const height = Math.max(...vertices.map(point => point.y)) - Math.min(...vertices.map(point => point.y));
+    return `${width.toFixed(1)} × ${height.toFixed(1)} mm`;
+  });
+  assert.ok((await row.textContent()).includes(dimensions));
+  assert.match(await row.textContent(), /side 1 \(50%\)/);
+  assert.match(await row.textContent(), /side 4 \(18%\)/);
+
+  await captureDownloads();
+  const backup = await downloadBytes('#btn-save-project');
+  const archive = await readZip(backup.bytes);
+  const manifest = JSON.parse(await archive.file('project.json').async('text'));
+  assert.equal(manifest.schemaVersion, 3);
+  assert.equal(manifest.layout.cells.length, 13);
+  await importProject('shapes.hexproj', backup.bytes);
+  await page.waitForFunction(() => window.canEditProject?.() && window.gridManager.cells.size === 13);
+  assert.deepEqual(await page.evaluate(() => window.gridManager.getCell(0, 0).shape.depths), [50, 0, 0, 18, 0, 0]);
+  assert.equal(await page.evaluate(() => window.imageProcessor.getAllImages().length), 1);
+});
+
+test('preset download omits photo data and applying it preserves the library and supports undo', async () => {
+  await uploadImage('private-photo.svg');
+  await page.locator('#planner-canvas').focus();
+  await page.keyboard.press('Space');
+  await page.getByRole('button', { name: 'Add hex -A1', exact: true }).click();
+  await page.waitForFunction(() => window.gridManager.cells.size === 13);
+  await captureDownloads();
+  const preset = await downloadBytes('#btn-save-preset');
+  assert.equal(preset.filename, 'layout.hexpreset');
+  const text = preset.bytes.toString();
+  assert.doesNotMatch(text, /private-photo|cropRegion|activeImageId|imageId|data:image|groupZoom/);
+
+  await page.locator('#btn-create-grid').click();
+  await page.waitForFunction(() => window.gridManager.cells.size === 12);
+  const photoId = await page.locator('.image-item').first().getAttribute('data-id');
+  const load = (buffer) => page.locator('#preset-file-input').setInputFiles({
+    name: 'fixture.hexpreset', mimeType: 'application/json', buffer
+  });
+  await load(preset.bytes);
+  await page.waitForFunction(() => window.gridManager.cells.size === 13);
+  assert.equal(await page.locator('.image-item').first().getAttribute('data-id'), photoId);
+  assert.equal(await page.locator('#select-main-image').inputValue(), '');
+  assert.equal(await page.evaluate(() => window.gridManager.getActiveCells().some(cell => cell.imageId)), false);
+  await page.locator('#btn-undo').click();
+  await page.waitForFunction(() => window.gridManager.cells.size === 12);
+  assert.equal(await page.locator('#select-main-image').inputValue(), photoId);
+  await page.locator('#btn-redo').click();
+  await page.waitForFunction(() => window.gridManager.cells.size === 13);
+
+  const unsupported = JSON.parse(text);
+  unsupported.version++;
+  await load(Buffer.from(JSON.stringify(unsupported)));
+  await page.waitForFunction(() => !document.getElementById('app').inert);
+  assert.match(dialogs.at(-1), /Could not load the preset/);
+  assert.equal(await page.evaluate(() => window.gridManager.cells.size), 13);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.canEditProject?.() && window.gridManager.cells.size === 13);
+  assert.equal(await page.locator('.image-item').first().getAttribute('data-id'), photoId);
+  assert.equal(await page.locator('#select-main-image').inputValue(), '');
 });

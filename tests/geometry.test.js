@@ -3,29 +3,6 @@ import assert from 'node:assert/strict';
 import HexMath from '../js/hex-math.js';
 import GridManager from '../js/grid-manager.js';
 import FrameGenerator from '../js/frame-generator.js';
-import HangerGenerator from '../js/hanger-generator.js';
-import STLHexGenerator from '../js/stl-hex-generator.js';
-
-const RUNTIME_DOCUMENT = globalThis.document;
-
-function makeWhiteCanvasContext() {
-    const data = new Uint8ClampedArray(256 * 256 * 4);
-    for (let i = 0; i < data.length; i += 4) {
-        data[i] = data[i + 1] = data[i + 2] = data[i + 3] = 255;
-    }
-    return {
-        filter: 'none',
-        drawImage() {},
-        getImageData() { return { data }; }
-    };
-}
-
-globalThis.document = {
-    createElement(tag) {
-        assert.equal(tag, 'canvas');
-        return { getContext: () => makeWhiteCanvasContext() };
-    }
-};
 
 function makeGrid({ orientation = 'flat-top', stagger = 'left', halfHexes = false } = {}) {
     const manager = new GridManager();
@@ -40,31 +17,6 @@ function makeGrid({ orientation = 'flat-top', stagger = 'left', halfHexes = fals
         frameEnable: false
     });
     return manager;
-}
-
-function generateWhiteRelief(manager, cell, options = {}) {
-    cell.imageId = 'white-image';
-    return STLHexGenerator.generateHexSTL(cell, manager, {
-        getImage: () => ({ id: 'white-image' }),
-        getRotatedCanvasOrImage: () => ({ image: true })
-    }, { sectors: 30, rings: 5, baseThickness: 1.2, reliefHeight: 2, blur: 0, ...options });
-}
-
-function parseStl(buffer) {
-    const view = new DataView(buffer);
-    const count = view.getUint32(80, true);
-    assert.equal(buffer.byteLength, 84 + count * 50, 'binary STL size matches its triangle count');
-    const triangles = [];
-    for (let index = 0; index < count; index++) {
-        const offset = 84 + index * 50;
-        const normal = [0, 1, 2].map(axis => view.getFloat32(offset + axis * 4, true));
-        const points = [0, 1, 2].map(point => {
-            const start = offset + 12 + point * 12;
-            return [0, 1, 2].map(axis => view.getFloat32(start + axis * 4, true));
-        });
-        triangles.push({ normal, points });
-    }
-    return triangles;
 }
 
 function parseAsciiStl(stl) {
@@ -105,15 +57,11 @@ function verifyTriangleMesh(triangles) {
         }
     }
 
-    assert.ok(signedVolume > 0, 'closed relief has positive signed volume');
+    assert.ok(signedVolume > 0, 'closed mesh has positive signed volume');
     assert.ok([...edgeCounts.values()].every(count => count === 2), 'each mesh edge belongs to exactly two triangles');
     assert.ok(triangles.some(({ normal }) => normal[2] > 0.99), 'top surfaces face upward');
     assert.ok(triangles.some(({ normal }) => normal[2] < -0.99), 'bottom surfaces face downward');
     return triangles;
-}
-
-function verifyClosedOutwardMesh(buffer) {
-    return verifyTriangleMesh(parseStl(buffer));
 }
 
 function pointOnSegment(point, a, b, epsilon = 1e-4) {
@@ -132,35 +80,6 @@ function pointInConvexPolygon(point, polygon) {
     }
     return true;
 }
-
-test('relief STL is closed, outward, and preserves clipped polygon corners for both layouts', () => {
-    for (const orientation of ['flat-top', 'pointy-top']) {
-        for (const stagger of ['left', 'right']) {
-            const manager = makeGrid({ orientation, stagger, halfHexes: true });
-            const cell = manager.getAllCells()[0];
-            const polygon = HexMath.getCellVertices(cell, manager.config);
-            assert.ok(polygon.length >= 3, `${orientation}/${stagger} has a clipped polygon`);
-
-            const buffer = generateWhiteRelief(manager, cell);
-            assert.ok(buffer instanceof ArrayBuffer);
-            const triangles = verifyClosedOutwardMesh(buffer);
-            const points = triangles.flatMap(triangle => triangle.points);
-            const center = polygon.reduce((sum, point) => ({
-                x: sum.x + point.x / polygon.length,
-                y: sum.y + point.y / polygon.length
-            }), { x: 0, y: 0 });
-
-            for (const point of points) {
-                const inWorld = { x: point[0] + center.x, y: -point[1] + center.y };
-                assert.ok(pointInConvexPolygon(inWorld, polygon), `${orientation}/${stagger} relief stays within its clipped hex`);
-            }
-            for (const corner of polygon) {
-                assert.ok(points.some(point => Math.hypot(point[0] + center.x - corner.x, -point[1] + center.y - corner.y) < 1e-4),
-                    `${orientation}/${stagger} mesh contains each clipped corner`);
-            }
-        }
-    }
-});
 
 test('neighbor lookup follows rendered edges for both stagger parities and keeps the legacy default', () => {
     const legacyFlatOffsets = [
@@ -304,29 +223,76 @@ test('minimal clipped grids keep valid hexes and empty bounds resolve to zero', 
 
     const cell = pointySingleRow.getAllCells()[0];
     pointySingleRow.config.rows = 0;
+    pointySingleRow.invalidateGeometry();
     const zeroBounds = { width: 0, height: 0, minX: 0, minY: 0, maxX: 0, maxY: 0 };
     assert.deepEqual(pointySingleRow.getBoundingBoxMm(), zeroBounds);
     assert.deepEqual(pointySingleRow.getBoundingBoxOfCells([cell]), zeroBounds);
 });
 
-test('degenerate clipping and out-of-range relief meshes are rejected safely', () => {
+test('degenerate clipping is rejected safely', () => {
     assert.deepEqual(HexMath.clipPolygonToRect([
         { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }
     ], 1, 2, 0, 1), []);
     assert.deepEqual(HexMath.getOffsetPolygonVertices([], []), []);
-
-    const manager = makeGrid();
-    const cell = manager.getAllCells()[0];
-    cell.imageId = 'white-image';
-    const processor = { getImage: () => ({}), getRotatedCanvasOrImage: () => ({}) };
-    assert.equal(STLHexGenerator.generateHexSTL(cell, manager, processor, { sectors: 361 }), null);
-    assert.equal(STLHexGenerator.generateHexSTL(cell, manager, processor, { rings: 181 }), null);
-    assert.equal(STLHexGenerator.generateHexSTL(cell, manager, processor, { baseThickness: 0 }), null);
-    assert.equal(HangerGenerator.generateSTL({ hexSize: 20, gap: 2 }, { armWidth: 0 }), '');
-    assert.match(HangerGenerator.generateSTL({ hexSize: 20, gap: 2 }, {}), /^solid symmetric_y_hanger/);
 });
 
-test.after(() => {
-    if (RUNTIME_DOCUMENT === undefined) delete globalThis.document;
-    else globalThis.document = RUNTIME_DOCUMENT;
+test('manual cuts keep image bounds and give each frame variant a closed outward mesh', () => {
+    for (const orientation of ['flat-top', 'pointy-top']) {
+        for (const stagger of ['left', 'right']) {
+            const grid = new GridManager();
+            grid.seedGrid({ columns: 1, rows: 1, hexSize: 20, orientation, stagger, gap: 4 });
+            const cell = grid.getCell(0, 0);
+            const original = grid.getCellVertices(cell);
+            const originalBounds = grid.getImageBounds();
+            const originalCenter = HexMath.axialToPixel(0, 0, 20, orientation, 4, stagger);
+            const half = { kind: 'cuts', depths: [50, 0, 0, 0, 0, 0] };
+            const degenerate = { kind: 'cuts', depths: [50, 0, 0, 50, 0, 0] };
+            assert.equal(grid.setCellShape(cell, degenerate), false);
+            assert.equal(grid.setCellShape(cell, half), true);
+            assert.deepEqual(grid.getImageBounds(), originalBounds);
+            assert.notDeepEqual(grid.getBoundingBoxMm(), originalBounds);
+            const removed = {
+                x: (original[0].x + original[1].x + originalCenter.x) / 3,
+                y: (original[0].y + original[1].y + originalCenter.y) / 3
+            };
+            assert.equal(grid.getCellAtPoint(removed), null);
+            for (const point of grid.getCellVertices(cell)) {
+                const interior = { x: point.x * 0.98 + originalCenter.x * 0.02, y: point.y * 0.98 + originalCenter.y * 0.02 };
+                assert.equal(grid.getCellAtPoint(interior), cell);
+            }
+
+            const custom = { kind: 'cuts', depths: [25, 0, 0, 14, 10, 0] };
+            assert.equal(grid.setCellShape(cell, custom), true);
+            for (const type of ['outline', 'sleeve', 'backing']) {
+                verifyTriangleMesh(parseAsciiStl(FrameGenerator.generateFrameSTL(cell, grid, type, 2, 0.2, 8, 1.2)));
+            }
+        }
+    }
+});
+
+test('open frame export rejects coincident inner and outer walls at zero tile gap', () => {
+    const grid = new GridManager();
+    grid.seedGrid({ columns: 2, rows: 2, hexSize: 20, gap: 0 });
+    const cell = grid.getCell(0, 0);
+    for (const type of ['outline', 'sleeve']) {
+        assert.equal(FrameGenerator.generateFrameSTL(cell, grid, type, 2, 0.2, 8, 1.2), '');
+    }
+    verifyTriangleMesh(parseAsciiStl(FrameGenerator.generateFrameSTL(cell, grid, 'backing', 2, 0.2, 8, 1.2)));
+});
+
+test('explicit topology supports signed offsets and stops at the 25 by 25 limits', () => {
+    const grid = new GridManager();
+    grid.seedGrid({ columns: 24, rows: 25, hexSize: 20 });
+    const first = grid.getCell(0, 0);
+    const outside = grid.getAvailableNeighbors(first).find(cell => cell.col === -1 && cell.row === 0);
+    assert.ok(outside);
+    assert.equal(grid.addCell(outside.q, outside.r), true);
+    assert.equal(grid.getCell(outside.q, outside.r).label, '-A1');
+    assert.equal(grid.getCell(0, 0).label, 'A1');
+    assert.equal(grid.canAddCell(-2, 1), false);
+    assert.equal(grid.canAddCell(0, -1), false);
+    grid.updateConfig({ orientation: 'pointy-top', stagger: 'right' });
+    assert.equal(grid.getAllCells().find(cell => cell.label === '-A1').col, -1);
+    grid.seedGrid({ columns: 25, rows: 25 });
+    assert.equal(grid.getAvailableNeighbors(grid.getCell(0, 0)).length, 0);
 });

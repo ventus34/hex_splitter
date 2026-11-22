@@ -1,6 +1,11 @@
 import { validatePanelExport } from './panel-groups.js';
+import HexMath from './hex-math.js';
+import {
+    MAX_GRID_CELLS, MAX_GRID_DIMENSION, canStoreCoordinate, cellKey,
+    getGridExtent, isGridExtentValid, starterCoordinates, toOffset
+} from './grid-topology.js';
 
-export const PROJECT_SCHEMA_VERSION = 2;
+export const PROJECT_SCHEMA_VERSION = 3;
 export const PROJECT_LAYOUT_RECORD_ID = '__hexsplitter_project_layout__';
 export const PROJECT_LIMITS = Object.freeze({
     maxArchiveBytes: 250 * 1024 * 1024,
@@ -9,8 +14,8 @@ export const PROJECT_LIMITS = Object.freeze({
     maxImages: 625,
     maxImagePixels: 50_000_000,
     maxTotalImagePixels: 150_000_000,
-    maxGridDimension: 25,
-    maxCells: 625
+    maxGridDimension: MAX_GRID_DIMENSION,
+    maxCells: MAX_GRID_CELLS
 });
 export const SUPPORTED_IMAGE_MIME_TYPES = Object.freeze([
     'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml', 'image/avif', 'image/tiff'
@@ -75,6 +80,8 @@ export function validateProjectLayout(layout) {
     requireCondition(isRecord(layout.grid), 'Projekt nie zawiera konfiguracji siatki.');
 
     const { grid } = layout;
+    requireCondition(grid.topology === undefined || grid.topology === 'explicit', 'Niepoprawny tryb zapisu siatki.');
+    const explicitGrid = grid.topology === 'explicit';
     for (const [key, fallback] of [['columns', 4], ['rows', 3]]) {
         if (grid[key] !== undefined) {
             requireCondition(Number.isInteger(grid[key]) && grid[key] >= 1 && grid[key] <= PROJECT_LIMITS.maxGridDimension,
@@ -103,6 +110,7 @@ export function validateProjectLayout(layout) {
     if (grid.dpi !== undefined) {
         requireCondition(grid.dpi === 'original' || (Number.isInteger(Number(grid.dpi)) && Number(grid.dpi) >= 72 && Number(grid.dpi) <= 1200),
             'Niepoprawna rozdzielczość eksportu w projekcie.');
+        if (grid.dpi !== 'original') grid.dpi = Number(grid.dpi);
     }
     if (grid.exportFormat !== undefined) requireCondition(['png', 'jpg'].includes(grid.exportFormat), 'Nieznany format eksportu w projekcie.');
     if (grid.exportQuality !== undefined) requireCondition(isFiniteNumber(grid.exportQuality) && grid.exportQuality >= 10 && grid.exportQuality <= 100,
@@ -113,13 +121,13 @@ export function validateProjectLayout(layout) {
 
     const cells = layout.cells === undefined ? [] : layout.cells;
     requireCondition(Array.isArray(cells) && cells.length <= PROJECT_LIMITS.maxCells, 'Lista komórek w projekcie jest niepoprawna.');
-    const coordinates = new Set();
+    const savedCells = new Map();
     for (const cell of cells) {
-        requireCondition(isRecord(cell) && Number.isInteger(cell.q) && Number.isInteger(cell.r),
+        requireCondition(isRecord(cell) && canStoreCoordinate(cell.q, cell.r, grid.orientation ?? 'flat-top'),
             'Projekt zawiera komórkę o niepoprawnych współrzędnych.');
-        const key = `${cell.q},${cell.r}`;
-        requireCondition(!coordinates.has(key), 'Projekt zawiera powtórzoną komórkę.');
-        coordinates.add(key);
+        const key = cellKey(cell.q, cell.r);
+        requireCondition(!savedCells.has(key), 'Projekt zawiera powtórzoną komórkę.');
+        savedCells.set(key, cell);
         requireCondition(cell.enabled === undefined || typeof cell.enabled === 'boolean', 'Niepoprawny stan komórki.');
         if (cell.cropRegion !== undefined && cell.cropRegion !== null) {
             const crop = cell.cropRegion;
@@ -141,11 +149,50 @@ export function validateProjectLayout(layout) {
         }
     }
 
+    const orientation = grid.orientation ?? 'flat-top';
+    if (explicitGrid) {
+        requireCondition(Array.isArray(layout.cells) && isGridExtentValid(getGridExtent(cells, orientation)),
+            'Siatka w projekcie przekracza dozwolone wymiary.');
+        for (const cell of cells) {
+            requireCondition(cell.enabled !== false && isRecord(cell.shape), 'Niepoprawny kształt heksa.');
+            if (cell.shape.kind === 'cuts') {
+                const depths = cell.shape.depths;
+                requireCondition(Array.isArray(depths) && depths.length === 6 &&
+                    [...depths].every(depth => Number.isInteger(depth) && depth >= 0 && depth < 100) &&
+                    depths.some(Boolean), 'Niepoprawna głębokość cięcia heksa.');
+                requireCondition(HexMath.getCellVertices(cell, { hexSize: 100, gap: 2, ...grid, orientation }).length >= 3,
+                    'Cięcia usuwają cały heks.');
+                cell.shape = { kind: 'cuts', depths: depths.slice() };
+            } else {
+                requireCondition(['legacy', 'full'].includes(cell.shape.kind), 'Nieznany kształt heksa.');
+                if (cell.shape.kind === 'legacy') {
+                    const { col, row } = toOffset(cell.q, cell.r, orientation);
+                    requireCondition(col >= 0 && col < grid.columns && row >= 0 && row < grid.rows,
+                        'Przycięcie ze starszego projektu znajduje się poza siatką startową.');
+                }
+                cell.shape = { kind: cell.shape.kind };
+            }
+            delete cell.enabled;
+        }
+    } else {
+        // Old projects described a rectangle and a partial mask of enabled cells.
+        layout.cells = starterCoordinates(grid.columns, grid.rows, orientation).flatMap(({ q, r }) => {
+            const saved = savedCells.get(cellKey(q, r));
+            if (saved?.enabled === false) return [];
+            const cell = { ...saved, q, r, shape: { kind: grid.halfHexes ? 'legacy' : 'full' } };
+            delete cell.enabled;
+            return [cell];
+        });
+    }
+    grid.topology = 'explicit';
+    delete grid.halfHexes;
+    delete layout.relief;
+    delete layout.hanger;
+    if (isRecord(layout.previewOptions)) delete layout.previewOptions.showHangers;
+
     const sectionLimits = {
         bed: [['sizeX', 50, 1000], ['sizeY', 50, 1000]],
-        frame: [['width', 1, 50], ['clearance', 0, 5], ['height', 1, 100], ['sleeveBase', 0.4, 20]],
-        relief: [['height', 0.1, 50], ['baseThickness', 0.4, 50], ['sectors', 30, 360], ['rings', 15, 180], ['blur', 0, 5]],
-        hanger: [['clearance', 0, 5], ['baseThickness', 0.5, 10], ['ridgeHeight', 1, 20], ['armWidth', 5, 100], ['armLength', 10, 200]]
+        frame: [['width', 1, 50], ['clearance', 0, 5], ['height', 1, 100], ['sleeveBase', 0.4, 20]]
     };
     for (const [section, fields] of Object.entries(sectionLimits)) {
         if (layout[section] === undefined) continue;
@@ -158,8 +205,8 @@ export function validateProjectLayout(layout) {
         }
     }
     for (const [section, keys] of Object.entries({
-        bed: ['verify'], frame: ['enable', 'syncWidth'], relief: ['enable', 'invert'],
-        previewOptions: ['showGaps', 'showLabels', 'showFrames', 'showRuler', 'showHangers']
+        bed: ['verify'], frame: ['enable', 'syncWidth'],
+        previewOptions: ['showGaps', 'showLabels', 'showFrames', 'showRuler']
     })) {
         if (layout[section] === undefined) continue;
         requireCondition(isRecord(layout[section]), `Sekcja ${section} projektu jest niepoprawna.`);
@@ -172,18 +219,21 @@ export function validateProjectLayout(layout) {
     if (layout.previewOptions?.background !== undefined) {
         requireCondition(['transparent', 'dark', 'light', 'wall'].includes(layout.previewOptions.background), 'Nieznane tło podglądu w projekcie.');
     }
-    layout.panelExport = validatePanelExport(layout.panelExport, grid, cells);
+    layout.panelExport = validatePanelExport(layout.panelExport, grid, layout.cells);
     return layout;
 }
 
 export function validateProjectArchiveMetadata(projectData, zip, archiveSize = 0) {
     requireCondition(isRecord(projectData), 'Plik projektu nie zawiera poprawnych danych.');
     const version = projectData.schemaVersion;
-    requireCondition(version === undefined || version === PROJECT_SCHEMA_VERSION,
+    requireCondition(version === undefined || version === 2 || version === PROJECT_SCHEMA_VERSION,
         'Ta wersja formatu projektu nie jest obsługiwana.');
     requireCondition(Array.isArray(projectData.images) && projectData.images.length <= PROJECT_LIMITS.maxImages,
         'Projekt zawiera zbyt wiele obrazów.');
     requireCondition(archiveSize <= PROJECT_LIMITS.maxArchiveBytes, 'Plik projektu jest zbyt duży.');
+    if (version === PROJECT_SCHEMA_VERSION) {
+        requireCondition(projectData.layout?.grid?.topology === 'explicit', 'Projekt nie zawiera jawnego układu siatki.');
+    }
     const layout = validateProjectLayout(projectData.layout);
 
     let uncompressedBytes = 0;

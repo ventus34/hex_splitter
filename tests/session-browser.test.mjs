@@ -55,7 +55,8 @@ test('same-origin tabs fence edits, transfer ownership, and export one current r
         await first.locator('#file-input').setInputFiles({ name: 'session.svg', mimeType: 'image/svg+xml', buffer: svg });
         await first.locator('.image-item').waitFor();
         await first.locator('#grid-cols').fill('5');
-        await first.locator('#grid-cols').dispatchEvent('input');
+        first.once('dialog', dialog => dialog.accept());
+        await first.locator('#btn-create-grid').click();
         await first.waitForFunction(() => window.gridManager.config.columns === 5);
         await waitForAsyncPageCondition(first, async () => {
             const { default: store } = await import('/js/project-store.js?v=1.0.3');
@@ -149,7 +150,7 @@ test('takeover waits for image removal continuation before persisting the layout
             const cell = window.gridManager.getAllCells()[0];
             cell.imageId = id;
             cell.cropRegion = { x: 1, y: 1, w: 12, h: 8 };
-            document.getElementById('hanger-clearance').dispatchEvent(new Event('input', { bubbles: true }));
+            document.getElementById('planner-canvas').dispatchEvent(new CustomEvent('gridchange'));
         }, imageId);
         await waitForAsyncPageCondition(first, async id => {
             const { default: store } = await import('/js/project-store.js?v=1.0.3');

@@ -2,10 +2,11 @@ const GEOMETRY_EPSILON = 1e-9;
 
 function polygonArea(vertices) {
     let area = 0;
-    for (let i = 0; i < vertices.length; i++) {
+    const origin = vertices[0];
+    for (let i = 1; i < vertices.length - 1; i++) {
         const a = vertices[i];
-        const b = vertices[(i + 1) % vertices.length];
-        area += a.x * b.y - b.x * a.y;
+        const b = vertices[i + 1];
+        area += (a.x - origin.x) * (b.y - origin.y) - (b.x - origin.x) * (a.y - origin.y);
     }
     return area / 2;
 }
@@ -378,6 +379,67 @@ const HexMath = {
         return current;
     },
 
+    /** Each plane moves inwards by a percentage of the flat-to-flat width. */
+    clipHexSides(vertices, reference, depths, hexSize) {
+        let polygon = vertices;
+        for (const [side, depth] of depths.entries()) {
+            if (!depth) continue;
+            const a = reference[side];
+            const b = reference[(side + 1) % 6];
+            const length = Math.hypot(b.x - a.x, b.y - a.y);
+            const nx = -(b.y - a.y) / length;
+            const ny = (b.x - a.x) / length;
+            const inset = depth * Math.sqrt(3) * hexSize / 100;
+            const distance = point => (point.x - a.x) * nx + (point.y - a.y) * ny - inset;
+            let previous = polygon.at(-1);
+            let previousDistance = distance(previous);
+            const output = [];
+            for (const point of polygon) {
+                const pointDistance = distance(point);
+                if ((previousDistance >= 0) !== (pointDistance >= 0)) {
+                    const t = previousDistance / (previousDistance - pointDistance);
+                    output.push({ x: previous.x + t * (point.x - previous.x), y: previous.y + t * (point.y - previous.y) });
+                }
+                if (pointDistance >= 0) output.push(point);
+                previous = point;
+                previousDistance = pointDistance;
+            }
+            polygon = cleanPolygon(output);
+            if (!polygon.length) break;
+        }
+        return polygon;
+    },
+
+    isLegacyShape(cell, config) {
+        return cell.shape?.kind === 'legacy' || (!cell.shape && config.halfHexes);
+    },
+
+    containsPoint(vertices, point) {
+        return vertices.length >= 3 && vertices.every((a, index) => {
+            const b = vertices[(index + 1) % vertices.length];
+            return (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x) >= -GEOMETRY_EPSILON;
+        });
+    },
+
+    getPolygonBounds(vertices) {
+        if (!vertices.length) return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const { x, y } of vertices) {
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y);
+            maxY = Math.max(maxY, y);
+        }
+        return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
+    },
+
+    getGapTranslation(cell, { hexSize, orientation, gap, stagger }, targetGap) {
+        if (targetGap === gap) return { x: 0, y: 0 };
+        const from = this.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
+        const to = this.axialToPixel(cell.q, cell.r, hexSize, orientation, targetGap, stagger);
+        return { x: to.x - from.x, y: to.y - from.y };
+    },
+
     /**
      * Zwraca prostokąt obcinający całą siatkę w mm
      */
@@ -431,7 +493,11 @@ const HexMath = {
         const pos = this.axialToPixel(cell.q, cell.r, size, orientation, gap, stagger);
         const vertices = this.getHexVertices(pos.x, pos.y, size, orientation);
 
-        if (gridConfig.halfHexes) {
+        if (cell.shape?.kind === 'cuts') {
+            return this.clipHexSides(vertices, vertices, cell.shape.depths, size);
+        }
+
+        if (this.isLegacyShape(cell, gridConfig)) {
             const clipConfig = {
                 columns: gridConfig.columns,
                 rows: gridConfig.rows,

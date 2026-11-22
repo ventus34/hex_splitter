@@ -146,9 +146,10 @@ test('panel renderer preserves source crops and transparent spacing without seam
     assert.ok(result.translucentAlpha.every(alpha => Math.abs(alpha - 128) <= 3), `source alpha changed at shared edge: ${result.translucentAlpha}`);
 });
 
-test('group editing, undo/redo, span mode and disabling a member preserve correct project state', async () => {
+test('group editing, undo/redo, span mode and removing a member preserve correct project state', async () => {
     await setNumber('#grid-cols', 1);
     await setNumber('#grid-rows', 3);
+    await page.locator('#btn-create-grid').click();
     await page.waitForFunction(() => window.gridManager.config.columns === 1 && window.gridManager.config.rows === 3);
     await makeGroup(['A1', 'A2']);
     assert.deepEqual(await page.evaluate(() => window.gridManager.getAllCells().map(cell => cell.enabled)), [true, true, true]);
@@ -166,6 +167,7 @@ test('group editing, undo/redo, span mode and disabling a member preserve correc
     assert.deepEqual(await page.evaluate(() => window.gridManager.panelExport.groups), group);
     await page.locator('#btn-mode-grid').click();
     await selectCell('A2');
+    await page.locator('#btn-remove-hex').click();
     await page.waitForFunction(() => window.gridManager.panelExport.groups.length === 0);
     await page.locator('#btn-undo').click();
     await page.waitForFunction(() => window.gridManager.panelExport.groups[0]?.cells.length === 3);
@@ -179,6 +181,7 @@ test('group editing, undo/redo, span mode and disabling a member preserve correc
 test('exported PNG ZIP and project archive preserve groups, independent gap, and compatibility with older projects', async () => {
     await setNumber('#grid-cols', 1);
     await setNumber('#grid-rows', 2);
+    await page.locator('#btn-create-grid').click();
     await setNumber('#hex-size', 20);
     await page.locator('#export-dpi').selectOption('72');
     await page.locator('#file-input').setInputFiles({ name: 'panel.svg', mimeType: 'image/svg+xml', buffer: fixture });
@@ -213,11 +216,17 @@ test('exported PNG ZIP and project archive preserve groups, independent gap, and
     await page.waitForFunction(() => window.gridManager?.panelExport?.groups.length === 1 && window.gridManager.panelExport.gapMm === 1.25);
 
     // A schema-2 archive made before panel groups existed remains importable.
+    manifest.schemaVersion = 2;
+    delete manifest.layout.grid.topology;
+    manifest.layout.grid.dpi = 600;
     delete manifest.layout.panelExport;
+    dialogs.length = 0;
     projectZip.file('project.json', JSON.stringify(manifest));
     const legacy = await projectZip.generateAsync({ type: 'nodebuffer' });
     await importProject('legacy.hexproj', legacy);
     await page.waitForFunction(() => window.gridManager?.panelExport?.groups.length === 0 && window.gridManager.panelExport.gapMm === 0);
+    assert.equal(await page.locator('#export-dpi').inputValue(), '600');
+    assert.equal(await page.evaluate(() => window.gridManager.config.dpi), 600);
     assert.deepEqual(dialogs, []);
 });
 

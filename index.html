@@ -50,6 +50,9 @@
                     <span data-i18n="btn_load_project">Load Project</span>
                 </button>
                 <input type="file" id="project-file-input" accept=".hexproj" style="display: none;">
+                <button id="btn-save-preset" class="btn btn-secondary btn-sm" type="button" data-i18n="save_preset">Save preset</button>
+                <button id="btn-load-preset" class="btn btn-secondary btn-sm" type="button" data-i18n="load_preset">Load preset</button>
+                <input type="file" id="preset-file-input" accept=".hexpreset,application/json" hidden>
                 <button id="btn-reset-project" class="btn btn-danger-outline btn-sm">
                     <svg viewBox="0 0 24 24" class="icon-inline"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                     <span data-i18n="btn_reset_project">Clear project</span>
@@ -156,15 +159,8 @@
                     
                     <div class="toolbar-divider"></div>
                     
-                    <div class="toolbar-group">
-                        <button id="btn-select-all" class="btn btn-text btn-sm" data-i18n="activate_all">Activate all</button>
-                        <button id="btn-deselect-all" class="btn btn-text btn-sm" data-i18n="deactivate_all">Deactivate all</button>
-                    </div>
-
-                    <div class="toolbar-divider"></div>
-                    
                     <div class="toolbar-group" id="tool-mode-group">
-                        <button id="btn-mode-grid" class="btn btn-sm active" data-i18n-title="mode_grid_title" title="Draw grid (Activate hexes)">
+                        <button id="btn-mode-grid" class="btn btn-sm active" data-i18n-title="mode_grid_title" title="Edit the grid">
                             <svg class="icon-inline" viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;"><path fill="currentColor" d="M4 4h4v4H4V4m6 0h4v4h-4V4m6 0h4v4h-4V4M4 10h4v4H4v-4m6 0h4v4h-4v-4m6 0h4v4h-4v-4M4 16h4v4H4v-4m6 0h4v4h-4v-4m6 0h4v4h-4v-4Z"/></svg>
                             <span data-i18n="mode_grid">Grid</span>
                         </button>
@@ -180,15 +176,50 @@
                     <div class="toolbar-spacer"></div>
 
                     <div class="canvas-status">
-                        <span id="canvas-status-text" data-i18n="status_grid_mode">Use LMB to activate/deactivate hexes from the layout</span>
+                        <span id="canvas-status-text" data-i18n="status_grid_mode">Select a hex to edit its shape or add neighbors</span>
                     </div>
                 </div>
 
                 <div class="canvas-wrapper" id="canvas-wrapper">
                     <!-- The Interactive Canvas -->
-                    <canvas id="planner-canvas" tabindex="0" role="application" aria-label="Wall planner grid" aria-describedby="planner-live-status"></canvas>
-                    <span id="planner-live-status" class="visually-hidden" aria-live="polite">Use arrow keys to select a cell and Space or Enter to toggle it.</span>
+                    <canvas id="planner-canvas" tabindex="0" role="application" aria-label="Wall planner grid" data-i18n-aria-label="planner_label" aria-describedby="planner-keyboard-help"></canvas>
+                    <span id="planner-keyboard-help" class="visually-hidden" data-i18n="grid_keyboard_help">Use the arrow keys to select a hex. Tab to its controls or press Delete to open removal confirmation.</span>
+                    <span id="planner-live-status" class="visually-hidden" aria-live="polite"></span>
                 </div>
+                <section id="hex-editor" class="hex-editor hidden" aria-labelledby="hex-editor-title">
+                    <button id="btn-first-hex" class="btn btn-primary btn-sm hidden" type="button" data-i18n="add_first_hex">Add first hex</button>
+                    <div id="hex-editor-fields" class="hidden">
+                        <div class="hex-editor-row">
+                            <h2 id="hex-editor-title" class="hex-editor-title"></h2>
+                            <div id="hex-neighbor-actions" class="hex-neighbor-actions" role="group" data-i18n-aria-label="add_neighbors" aria-label="Add neighbors"></div>
+                            <button id="btn-remove-hex" class="btn btn-danger-outline btn-sm" type="button" data-i18n="remove_hex">Remove hex</button>
+                        </div>
+                        <details id="hex-shape-editor">
+                            <summary data-i18n="hex_shape">Shape</summary>
+                            <div class="hex-shape-controls">
+                                <canvas id="hex-shape-preview" width="120" height="100" role="img" data-i18n-aria-label="shape_preview" aria-label="Shape preview"></canvas>
+                                <div class="hex-shape-fields">
+                                    <label for="hex-shape-mode" class="visually-hidden" data-i18n="hex_shape">Shape</label>
+                                    <select id="hex-shape-mode" class="form-select form-select-sm">
+                                        <option value="full" data-i18n="shape_full">Full hex</option>
+                                        <option value="half" data-i18n="shape_half">Half hex</option>
+                                        <option value="cuts" data-i18n="shape_cuts">Custom cuts</option>
+                                        <option value="legacy" data-i18n="shape_legacy">Imported edge cut</option>
+                                    </select>
+                                    <div id="hex-half-side-field" class="hidden">
+                                        <label for="hex-half-side" data-i18n="cut_side">Cut from side</label>
+                                        <select id="hex-half-side" class="form-select form-select-sm"></select>
+                                    </div>
+                                    <fieldset id="hex-cut-depths" class="hidden">
+                                        <legend data-i18n="cut_depth_legend">Cut depth (%)</legend>
+                                    </fieldset>
+                                    <p id="hex-shape-status" class="field-info" aria-live="polite"></p>
+                                    <button id="btn-apply-hex-shape" class="btn btn-primary btn-sm" type="button" data-i18n="apply_shape">Apply shape</button>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                </section>
             </section>
 
             <!-- PREVIEW TAB -->
@@ -215,21 +246,6 @@
                             <span class="toggle-slider"></span>
                             <span data-i18n="show_ruler">Show ruler</span>
                         </label>
-                        <label class="toggle-control">
-                            <input type="checkbox" id="chk-preview-hangers">
-                            <span class="toggle-slider"></span>
-                            <span data-i18n="show_hangers">Show hangers (STL)</span>
-                        </label>
-                        <label class="toggle-control ml-3">
-                            <input type="checkbox" id="chk-preview-ams">
-                            <span class="toggle-slider"></span>
-                            <span data-i18n="ams_preview">Color Quantization (AMS Preview)</span>
-                        </label>
-                        <select id="preview-ams-colors" class="form-select form-select-sm hidden" style="width: 90px; padding: 4px 8px; margin-left: 8px;">
-                            <option value="4" selected data-i18n="colors_4">4 colors</option>
-                            <option value="8" data-i18n="colors_8">8 colors</option>
-                            <option value="16" data-i18n="colors_16">16 colors</option>
-                        </select>
                     </div>
                     <div class="toolbar-spacer"></div>
                     <div class="toolbar-group">
@@ -261,7 +277,6 @@
                     <!-- Dynamically generated print guide -->
                     <div class="instruction-cover">
                         <h2 data-i18n="instructions_header">Hexagonal Wall Assembly Instructions</h2>
-                        <p class="instruction-date"></p>
                         
                         <div class="instruction-stats-grid">
                             <div class="stat-card">
@@ -284,22 +299,23 @@
                     </div>
 
                     <div class="instruction-section">
-                        <h3 data-i18n="layout_preview_title">1. Wall Layout Preview</h3>
+                        <h3 data-i18n="layout_preview_title">Wall layout</h3>
+                        <p class="instruction-map-note" data-i18n="guide_layout_note">Lay out the tiles by code and check the spacing before mounting.</p>
                         <div class="layout-preview-box">
-                            <canvas id="instruction-layout-canvas"></canvas>
+                            <canvas id="instruction-layout-canvas" role="img" aria-label="Wall layout" data-i18n-aria-label="guide_map"></canvas>
                         </div>
                     </div>
 
                     <div class="instruction-section">
-                        <h3 data-i18n="hex_list_title">2. Detailed Hex List</h3>
+                        <h3 data-i18n="hex_list_title">Tile list</h3>
                         <table class="instructions-table">
                             <thead>
                                 <tr>
                                     <th style="width: 8%;" data-i18n="th_code">Code</th>
-                                    <th style="width: 12%;" data-i18n="th_position">Position</th>
-                                    <th style="width: 20%;" data-i18n="th_graphic">Hex graphic</th>
-                                    <th style="width: 20%;" data-i18n="th_frame">Frame shape</th>
-                                    <th style="width: 40%;" data-i18n="th_desc">Description & tech specs</th>
+                                    <th data-i18n="th_position">Position</th>
+                                    <th data-i18n="th_graphic">Tile</th>
+                                    <th data-i18n="th_frame">Frame</th>
+                                    <th data-i18n="th_desc">Dimensions and shape</th>
                                 </tr>
                             </thead>
                             <tbody id="instructions-table-body">
@@ -336,20 +352,23 @@
                     <div class="form-row">
                         <div class="form-group col-6">
                             <label for="grid-cols" data-i18n="columns">Columns</label>
-                            <input type="number" id="grid-cols" class="form-input" min="1" max="25" value="4">
+                            <input type="number" id="grid-cols" class="form-input" min="1" max="25" step="1" value="4">
                         </div>
                         <div class="form-group col-6">
                             <label for="grid-rows" data-i18n="rows">Rows</label>
-                            <input type="number" id="grid-rows" class="form-input" min="1" max="25" value="3">
+                            <input type="number" id="grid-rows" class="form-input" min="1" max="25" step="1" value="3">
                         </div>
                     </div>
 
+                    <button id="btn-create-grid" class="btn btn-secondary btn-sm" type="button" data-i18n="create_grid">Create grid</button>
+                    <p class="field-info grid-start-help" data-i18n="grid_start_help">Rows and columns apply when creating the grid.</p>
+
                     <div class="form-group">
                         <label for="hex-size"><span data-i18n="hex_size_s">Hex size (S)</span> <span class="label-hint" data-i18n="circumradius_hint">circumradius (mm)</span></label>
-                        <input type="number" id="hex-size" class="form-input" min="10" max="500" value="100">
+                        <input type="number" id="hex-size" class="form-input" min="10" max="500" step="0.1" value="100">
                         <div class="size-indicators">
-                            <span><span data-i18n="flat_width">Width (flat-to-flat):</span> <strong id="val-hex-flat-width">173</strong> mm</span><br>
-                            <span><span data-i18n="total_height">Total height:</span> <strong id="val-hex-total-height">200</strong> mm</span>
+                            <span><span data-i18n="flat_width">Width:</span> <strong id="val-hex-flat-width">200</strong> mm</span><br>
+                            <span><span data-i18n="total_height">Height:</span> <strong id="val-hex-total-height">173.2</strong> mm</span>
                         </div>
                     </div>
 
@@ -375,13 +394,7 @@
                         <p class="field-info" data-i18n="gap_info">Dilatation gap between adjacent hex tiles.</p>
                     </div>
 
-                    <div class="form-group">
-                        <label class="toggle-control">
-                            <input type="checkbox" id="grid-half-hexes">
-                            <span class="toggle-slider"></span>
-                            <span data-i18n="half_hexes">Generate half-hexes on borders</span>
-                        </label>
-                    </div>
+
 
                     <div class="form-group">
                         <label for="export-dpi" data-i18n="export_dpi">DPI for image export</label>
@@ -496,108 +509,6 @@
 
                 </section>
 
-                <section class="panel-section">
-                    <h2 class="section-title">
-                        <svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 2v8m0 0l-5-4m5 4l5-4M12 10v12"/>
-                        </svg>
-                        <span data-i18n="hanger_config">3D Hanger Bracket (STL)</span>
-                    </h2>
-
-                    <div class="form-row">
-                        <div class="form-group col-6">
-                            <label for="hanger-clearance" data-i18n="hanger_clearance">Clearance (mm)</label>
-                            <input type="number" id="hanger-clearance" class="form-input" min="0" max="5" step="0.1" value="0.3">
-                        </div>
-                        <div class="form-group col-6">
-                            <label for="hanger-base-thickness" data-i18n="hanger_base_thickness">Base thickness (mm)</label>
-                            <input type="number" id="hanger-base-thickness" class="form-input" min="0.5" max="10" step="0.1" value="1.2">
-                        </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group col-6">
-                            <label for="hanger-ridge-height" data-i18n="hanger_ridge_height">Separator height (mm)</label>
-                            <input type="number" id="hanger-ridge-height" class="form-input" min="1" max="20" step="0.5" value="2.0">
-                        </div>
-                        <div class="form-group col-6">
-                            <label for="hanger-arm-width" data-i18n="hanger_arm_width">Arm width (mm)</label>
-                            <input type="number" id="hanger-arm-width" class="form-input" min="5" max="100" value="12">
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="hanger-arm-length" data-i18n="hanger_arm_length">Arm length (mm)</label>
-                        <input type="number" id="hanger-arm-length" class="form-input" min="10" max="200" value="30">
-                        <p class="field-info" data-i18n="hanger_arm_length_info">Safety limit: Arm length is capped at 95% of the hex size.</p>
-                    </div>
-
-                    <button id="btn-export-hanger" class="btn btn-primary btn-block">
-                        <svg viewBox="0 0 24 24" class="icon-inline" style="width:16px;height:16px;margin-right:4px;"><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
-                        <span data-i18n="btn_export_hanger">Download Y-Hanger (STL)</span>
-                    </button>
-                </section>
-
-                <section class="panel-section">
-                    <h2 class="section-title">
-                        <svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                            <polyline points="2 17 12 22 22 17" />
-                            <polyline points="2 12 12 17 22 12" />
-                        </svg>
-                        <span data-i18n="relief_config">3D Hex Relief (STL)</span>
-                    </h2>
-
-                    <div class="form-group">
-                        <label class="toggle-control">
-                            <input type="checkbox" id="relief-enable" checked>
-                            <span class="toggle-slider"></span>
-                            <span data-i18n="relief_enable">Enable 3D relief generation</span>
-                        </label>
-                    </div>
-
-                    <div class="relief-settings-sub">
-                        <div class="form-row">
-                            <div class="form-group col-6">
-                                <label for="relief-height" data-i18n="relief_height">Relief height (mm)</label>
-                                <input type="number" id="relief-height" class="form-input" min="0.1" max="50" step="0.5" value="2.0">
-                                <p class="field-info" data-i18n="relief_height_info">Maximum height of the raised 3D lines.</p>
-                            </div>
-                            <div class="form-group col-6">
-                                <label for="relief-base-thickness" data-i18n="relief_base_thickness">Base thickness (mm)</label>
-                                <input type="number" id="relief-base-thickness" class="form-input" min="0.4" max="50" step="0.1" value="1.2">
-                                <p class="field-info" data-i18n="relief_base_thickness_info">Thickness of the bottom solid layer.</p>
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="toggle-control">
-                                <input type="checkbox" id="relief-invert">
-                                <span class="toggle-slider"></span>
-                                <span data-i18n="relief_invert">Invert (raise dark lines)</span>
-                            </label>
-                            <p class="field-info" data-i18n="relief_invert_info">By default white areas are raised. Check to raise black lines instead.</p>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="relief-blur"><span data-i18n="relief_blur">Line smoothing (blur):</span> <span id="val-relief-blur">1.5px</span></label>
-                            <input type="range" id="relief-blur" class="form-range" min="0" max="5" step="0.1" value="1.5">
-                            <p class="field-info" data-i18n="relief_blur_info">Blurs the heightmap to create smooth sloped grooves instead of sharp pits.</p>
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group col-6">
-                                <label for="relief-sectors" data-i18n="relief_sectors">Sectors (Resolution)</label>
-                                <input type="number" id="relief-sectors" class="form-input" min="30" max="360" value="120">
-                            </div>
-                            <div class="form-group col-6">
-                                <label for="relief-rings" data-i18n="relief_rings">Rings (Resolution)</label>
-                                <input type="number" id="relief-rings" class="form-input" min="15" max="180" value="60">
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
                 <section class="panel-section export-section">
                     <h2 class="section-title">
                         <svg class="icon-inline" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
@@ -613,11 +524,6 @@
                     <button id="btn-export-frame-stl" class="btn btn-primary btn-block mt-2">
                         <svg viewBox="0 0 24 24" class="icon-inline" style="width:16px;height:16px;margin-right:4px;"><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
                         <span data-i18n="btn_export_frames_stl">Download Frames (.ZIP STL)</span>
-                    </button>
-
-                    <button id="btn-export-3d-hexes-stl" class="btn btn-primary btn-block mt-2">
-                        <svg viewBox="0 0 24 24" class="icon-inline" style="width:16px;height:16px;margin-right:4px;"><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
-                        <span data-i18n="btn_export_3d_hexes_stl">Download 3D Hexes (.ZIP STL)</span>
                     </button>
 
                 </section>

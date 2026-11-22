@@ -75,9 +75,10 @@ const FrameGenerator = {
         const posMm = HexMath.axialToPixel(cell.q, cell.r, hexSize, orientation, gap, stagger);
         const innerHexSizeMm = hexSize + clearanceMm;
         
-        // 1. Pobierz wewnętrzne wierzchołki (obcięte jeśli halfHexes jest włączone)
+        const legacyShape = HexMath.isLegacyShape(cell, config);
+        const unclippedInner = HexMath.getHexVertices(posMm.x, posMm.y, innerHexSizeMm, orientation);
         let innerVerticesMm;
-        if (config.halfHexes) {
+        if (legacyShape) {
             const clipConfig = {
                 columns: config.columns,
                 rows: config.rows,
@@ -87,18 +88,22 @@ const FrameGenerator = {
                 stagger
             };
             const clipRect = HexMath.getGridClipRect(clipConfig);
-            const unclippedInner = HexMath.getHexVertices(posMm.x, posMm.y, innerHexSizeMm, orientation);
             innerVerticesMm = HexMath.clipPolygonToRect(unclippedInner, clipRect.xMin, clipRect.xMax, clipRect.yMin, clipRect.yMax);
+        } else if (cell.shape?.kind === 'cuts') {
+            // Offset the actual opening, including every cut edge, by the same clearance
+            // the regular hex uses perpendicular to its original edges.
+            const opening = HexMath.getCellVertices(cell, config);
+            const gapToOpening = clearanceMm * Math.sqrt(3) / 2;
+            innerVerticesMm = HexMath.getOffsetPolygonVertices(opening, opening.map(() => gapToOpening));
         } else {
-            innerVerticesMm = HexMath.getHexVertices(posMm.x, posMm.y, innerHexSizeMm, orientation);
+            innerVerticesMm = unclippedInner;
         }
         
         // 2. Oblicz offset dla każdej krawędzi innerVerticesMm
         const offsetsMm = [];
         const n = innerVerticesMm.length;
         
-        if (config.halfHexes) {
-            const unclippedInner = HexMath.getHexVertices(posMm.x, posMm.y, innerHexSizeMm, orientation);
+        if (legacyShape || cell.shape?.kind === 'cuts') {
             for (let i = 0; i < n; i++) {
                 const p1 = innerVerticesMm[i];
                 const p2 = innerVerticesMm[(i + 1) % n];
@@ -133,101 +138,6 @@ const FrameGenerator = {
         const outerVerticesMm = HexMath.getOffsetPolygonVertices(innerVerticesMm, offsetsMm);
         
         return { innerVerticesMm, outerVerticesMm };
-    },
-
-    /**
-     * Tworzy płótno (canvas) z rysunkiem ramki dla danego heksu z uwzględnieniem złączy
-     */
-    createFrameCanvas(cell, gridManager, type, widthMm, clearanceMm, color = '#1a1a1a', customDpi = null) {
-        const dpi = customDpi || gridManager.config.dpi;
-        
-        const { innerVerticesMm, outerVerticesMm } = this.getFrameVerticesMm(cell, gridManager, widthMm, clearanceMm);
-        
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        outerVerticesMm.forEach(v => {
-            if (v.x < minX) minX = v.x;
-            if (v.x > maxX) maxX = v.x;
-            if (v.y < minY) minY = v.y;
-            if (v.y > maxY) maxY = v.y;
-        });
-        
-        const widthMmTotal = maxX - minX;
-        const heightMmTotal = maxY - minY;
-        
-        const canvasW = Math.round(HexMath.mmToPixels(widthMmTotal, dpi));
-        const canvasH = Math.round(HexMath.mmToPixels(heightMmTotal, dpi));
-        
-        const canvas = document.createElement('canvas');
-        canvas.width = canvasW;
-        canvas.height = canvasH;
-        
-        const ctx = canvas.getContext('2d');
-        
-        const toPixels = (v) => ({
-            x: HexMath.mmToPixels(v.x - minX, dpi),
-            y: HexMath.mmToPixels(v.y - minY, dpi)
-        });
-        
-        const innerVertices = innerVerticesMm.map(toPixels);
-        const outerVertices = outerVerticesMm.map(toPixels);
-        
-        ctx.save();
-        ctx.fillStyle = color;
-        
-        if (type === 'backing') {
-            ctx.beginPath();
-            outerVertices.forEach((v, idx) => {
-                if (idx === 0) ctx.moveTo(v.x, v.y);
-                else ctx.lineTo(v.x, v.y);
-            });
-            ctx.closePath();
-            ctx.fill();
-        } 
-        else if (type === 'outline') {
-            ctx.beginPath();
-            outerVertices.forEach((v, idx) => {
-                if (idx === 0) ctx.moveTo(v.x, v.y);
-                else ctx.lineTo(v.x, v.y);
-            });
-            ctx.closePath();
-
-            const revInner = [...innerVertices].reverse();
-            revInner.forEach((v, idx) => {
-                if (idx === 0) ctx.moveTo(v.x, v.y);
-                else ctx.lineTo(v.x, v.y);
-            });
-            ctx.closePath();
-
-            ctx.fill('evenodd');
-        } 
-        else if (type === 'sleeve') {
-            ctx.fillStyle = this.adjustColorBrightness(color, -20);
-            ctx.beginPath();
-            outerVertices.forEach((v, idx) => {
-                if (idx === 0) ctx.moveTo(v.x, v.y);
-                else ctx.lineTo(v.x, v.y);
-            });
-            ctx.closePath();
-            ctx.fill();
-
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            outerVertices.forEach((v, idx) => {
-                if (idx === 0) ctx.moveTo(v.x, v.y);
-                else ctx.lineTo(v.x, v.y);
-            });
-            ctx.closePath();
-            const revInner = [...innerVertices].reverse();
-            revInner.forEach((v, idx) => {
-                if (idx === 0) ctx.moveTo(v.x, v.y);
-                else ctx.lineTo(v.x, v.y);
-            });
-            ctx.closePath();
-            ctx.fill('evenodd');
-        }
-        
-        ctx.restore();
-        return canvas;
     },
 
     /**
@@ -330,6 +240,17 @@ const FrameGenerator = {
         const localOuter = makeCCW(outerVerticesMm.map(v => ({ x: v.x - cx, y: -(v.y - cy) })));
         const localInner = makeCCW(innerVerticesMm.map(v => ({ x: v.x - cx, y: -(v.y - cy) })));
 
+        if (type !== 'backing') {
+            if (localInner.length !== localOuter.length) return '';
+            const hasCollapsedWall = localOuter.some((outer, index) => {
+                const next = localOuter[(index + 1) % localOuter.length];
+                const inner = localInner[index];
+                const edgeLength = Math.hypot(next.x - outer.x, next.y - outer.y);
+                const distance = ((next.x - outer.x) * (inner.y - outer.y) - (next.y - outer.y) * (inner.x - outer.x)) / edgeLength;
+                return distance <= 1e-6;
+            });
+            if (hasCollapsedWall) return '';
+        }
         const n = localOuter.length;
         const H = heightMm;
         const B = Math.min(baseThicknessMm, H - 0.4); // Zabezpieczenie przed ujemną wysokością rantów

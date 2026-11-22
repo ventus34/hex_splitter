@@ -152,7 +152,11 @@ export default class ProjectStore {
     static saveLayout(layout) {
         return this.transaction('readwrite', store => {
             const request = store.get(PROJECT_LAYOUT_RECORD_ID);
-            request.onsuccess = () => store.put({ ...(request.result || {}), id: PROJECT_LAYOUT_RECORD_ID, layout });
+            request.onsuccess = () => {
+                const current = request.result;
+                if ((current?.layout?.savedAt ?? 0) > (layout.savedAt ?? 0)) return;
+                store.put({ ...current, id: PROJECT_LAYOUT_RECORD_ID, layout });
+            };
         });
     }
 

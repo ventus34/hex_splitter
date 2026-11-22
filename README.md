@@ -25,42 +25,48 @@ Do zwykłego używania aplikacji na hostingu nie trzeba instalować Node. JSZip 
 
 ## Funkcje
 
-- Siatka flat-top/pointy-top, dwa warianty przesunięcia, włączanie komórek, szczeliny i obcinanie brzegów.
+- Siatka flat-top/pointy-top, dwa warianty przesunięcia, szczeliny i edycja układu przez dodawanie, usuwanie lub przycinanie pojedynczych heksów.
 - Trzy tryby obrazów: jeden na całą ścianę, osobne zdjęcia oraz obraz rozciągnięty na grupę heksów (span).
 - Obrót, zoom i przesuwanie kadrów; biblioteka zdjęć przechowywana lokalnie.
-- Podgląd ścienny z ramkami, etykietami, miarką, zawieszkami i symulacją ograniczonej palety AMS.
-- Eksport kafelków PNG/JPEG do ZIP, ramek outline/backing/sleeve do ZIP STL, reliefów do binarnych ZIP STL i zawieszki Y do STL.
-- Instrukcja montażu z mapą, wymiarami i miniaturami. Przycisk drukowania używa okna przeglądarki; PDF zapisuje się przez „Zapisz jako PDF”.
-- Zapis i import plików `.hexproj` zawierających układ i oryginalne zdjęcia. Nowe pliki mają wersjonowany schemat; starszy format bez numeru wersji nadal jest obsługiwany.
-- Cofanie i ponawianie do 100 stanów układu w bieżącej sesji: `Ctrl/Cmd+Z`, `Ctrl/Cmd+Shift+Z` lub `Ctrl+Y`. Dodanie/usunięcie zdjęcia, import i reset rozpoczynają nową historię; historia nie jest zapisywana w projekcie.
+- Podgląd ścienny z ramkami, etykietami i miarką.
+- Eksport kafelków PNG/JPEG do ZIP, przezroczystych grup PNG dla HueForge oraz ramek outline/backing/sleeve do ZIP STL.
+- Instrukcja montażu z mapą, kodami, wymiarami przyciętych elementów i miniaturami. Zapis do PDF jest dostępny w oknie drukowania.
+- Kompletny projekt ze zdjęciami zapisuje się jako `.hexproj`. Preset `.hexpreset` zawiera układ i ustawienia bez plików i przypisań zdjęć. Aplikacja otwiera również starsze kopie `.hexproj`.
+- Cofanie i ponawianie do 100 stanów układu w bieżącej sesji: `Ctrl/Cmd+Z`, `Ctrl/Cmd+Shift+Z` lub `Ctrl+Y`. Dodanie i usunięcie zdjęcia, wczytanie pełnego projektu oraz reset rozpoczynają nową historię.
 - Tylko jedna karta tej samej witryny edytuje projekt naraz. Pozostałe karty działają tylko do odczytu i mogą przejąć edycję.
 - Interfejs PL/EN, układ mobilny, dotykowe zaznaczanie/przesuwanie i obsługa siatki klawiaturą.
 
-W planerze strzałki wybierają komórkę, a Spacja/Enter przełączają jej aktywność w trybie siatki. Na ekranie dotykowym dotknięcie przełącza komórkę, a przeciągnięcie przesuwa widok. Przy użyciu myszy widok przesuwa się prawym/środkowym przyciskiem lub Shift + lewy przycisk; kółko zmienia zoom.
+### Edycja siatki
+
+Wiersze i kolumny obowiązują po kliknięciu **Utwórz siatkę**. Następnie wybierz heks i kliknij jeden z przerywanych obrysów, aby dodać sąsiada. Tę samą akcję wykonują przyciski **+ kod** pod płótnem. W sekcji **Kształt** wybierz pełen heks, półheks lub własne cięcia. Głębokość cięcia to procent szerokości heksa mierzonej prostopadle do wybranego boku. Półheks odpowiada cięciu na 50%. Istniejący kadr pozostaje w tym samym miejscu po zmianie kształtu.
+
+Strzałki wybierają heks, Tab prowadzi do jego ustawień, a Delete otwiera potwierdzenie usunięcia. Po usunięciu ostatniego elementu można dodać pierwszy heks od nowa. Na ekranie dotykowym dotknięcie wybiera heks, a przeciągnięcie przesuwa widok. Przy użyciu myszy widok przesuwa się prawym lub środkowym przyciskiem albo przez Shift + lewy przycisk. Kółko zmienia zoom.
+
+**Zapisz preset** pobiera plik `.hexpreset`. **Wczytaj preset** zastępuje układ, kształty, grupy PNG i ustawienia, zachowując zdjęcia w bibliotece. Wczytanie można cofnąć jednym krokiem.
 
 ## Dane, import i ograniczenia
 
 Autozapis korzysta z IndexedDB oraz kopii układu w localStorage, osobno dla danego adresu strony. Czyszczenie danych witryny usuwa zapis lokalny. Plik `.hexproj` służy jako przenośna kopia zapasowa. Nie przechowuj jedynej kopii pracy wyłącznie w pamięci przeglądarki.
 
-Import najpierw sprawdza schemat, pliki i możliwość odczytania każdego obrazu, a następnie zastępuje projekt jedną transakcją. Błędny import zachowuje dotychczasowy projekt. Obecne limity obejmują siatkę do 25×25 komórek, wielkość archiwum 250 MiB i zasobów po rozpakowaniu 300 MiB; szczegóły są w `js/project-validation.js`.
+Import najpierw sprawdza schemat, pliki i możliwość odczytania każdego obrazu, a następnie zastępuje projekt jedną transakcją. Błędny import zachowuje dotychczasowy projekt. Obecne limity obejmują siatkę o rozpiętości do 25 wierszy i 25 kolumn z maksymalnie 625 heksami, wielkość archiwum 250 MiB i zasobów po rozpakowaniu 300 MiB. Szczegóły są w `js/project-validation.js`.
 
-Eksport pracuje na kopii ustawień i źródeł obrazów. Jednocześnie może działać jeden eksport danego zestawu kafelków/ramek/reliefów; postęp jest widoczny w interfejsie, a przycisk pozwala anulować zadanie. Relief jest generowany w module Worker, jeśli przeglądarka obsługuje wymagane API; w przeciwnym razie używany jest wariant głównego wątku. Kwantyzacja palety AMS podglądu również używa Workera z wariantem zastępczym. Archiwa ZIP, w tym kopie projektu `.hexproj`, są zapisywane strumieniowo: dane kolejnych plików trafiają do wybranego pliku porcjami, bez składania całego ZIP-a w jednym Blobie. Generator nadal tworzy Blob bieżącego pliku, a eksport kafelków utrzymuje kopie źródeł obrazów. Zapis używa ZIP32 bez kompresji; przy dostępnej obsłudze zapisu plików limit techniczny wynosi poniżej 4 GiB. Przeglądarka musi obsługiwać `showSaveFilePicker` w bezpiecznym kontekście, a okno zapisu otwiera się po kliknięciu przycisku. Gdy API nie jest dostępne, aplikacja pobiera buforowany ZIP do 256 MiB. Anulowanie wyboru pliku, odmowa dostępu lub błąd zapisu kończą zadanie i nie uruchamiają pobierania zastępczego.
+Eksport pracuje na kopii ustawień i źródeł obrazów. Jednocześnie może działać jeden eksport. Interfejs pokazuje postęp i pozwala anulować zadanie. Archiwa ZIP, w tym kopie projektu `.hexproj`, są zapisywane strumieniowo. Dane kolejnych plików trafiają do wybranego pliku porcjami, bez składania całego ZIP-a w jednym Blobie. Generator nadal tworzy Blob bieżącego pliku, a eksport kafelków utrzymuje kopie źródeł obrazów. Zapis używa ZIP32 bez kompresji. Przy dostępnej obsłudze zapisu plików limit techniczny wynosi poniżej 4 GiB. Przeglądarka musi obsługiwać `showSaveFilePicker` w bezpiecznym kontekście, a okno zapisu otwiera się po kliknięciu przycisku. Gdy API nie jest dostępne, aplikacja pobiera buforowany ZIP do 256 MiB. Anulowanie wyboru pliku, odmowa dostępu lub błąd zapisu kończą zadanie i nie uruchamiają pobierania zastępczego.
 
-Pliki `.hexproj` zachowują limity zgodne z importerem: 250 MiB dla całego archiwum, 300 MiB danych po rozpakowaniu, 5 MiB dla manifestu JSON, do 50 MiB na obraz i 625 obrazów. Pozostałe eksporty mają limit archiwum poniżej 4 GiB przy strumieniowym zapisie albo 256 MiB w trybie buforowanym. Niezależnie od sposobu zapisu pojedynczy obraz wyjściowy jest ograniczony do 16 megapikseli, a łączne źródła obrazu eksportu do 64 megapikseli. Zmniejsz liczbę aktywnych kafelków, DPI lub rozdzielczość reliefu, jeśli zadanie przekracza limit.
+Pliki `.hexproj` zachowują limity zgodne z importerem: 250 MiB dla całego archiwum, 300 MiB danych po rozpakowaniu, 5 MiB dla manifestu JSON, do 50 MiB na obraz i 625 obrazów. Pozostałe eksporty mają limit archiwum poniżej 4 GiB przy strumieniowym zapisie albo 256 MiB w trybie buforowanym. Niezależnie od sposobu zapisu pojedynczy obraz wyjściowy jest ograniczony do 16 megapikseli, a łączne źródła obrazu eksportu do 64 megapikseli. Zmniejsz liczbę aktywnych kafelków lub DPI, jeśli zadanie przekracza limit.
 
-Historia obejmuje ustawienia układu i kadry zdjęć, nie zawiera blobów obrazów i jest ograniczona do 100 stanów. Reset projektu, import oraz zmiana zawartości biblioteki zdjęć czyszczą historię. Cofanie/ponawianie jest sesyjne i nie przechodzi do innej karty ani po ponownym otwarciu aplikacji.
+Historia obejmuje ustawienia układu i kadry zdjęć, nie zawiera blobów obrazów i jest ograniczona do 100 stanów. Reset, wczytanie pełnego projektu oraz zmiana zawartości biblioteki zdjęć czyszczą historię. Cofanie/ponawianie jest sesyjne i nie przechodzi do innej karty ani po ponownym otwarciu aplikacji.
 
 Blokada edycji jest wspólna dla kart w ramach tego samego originu. Aplikacja korzysta z Web Locks, a gdy API nie jest dostępne — z dzierżawy zapisanej w IndexedDB; karta tylko do odczytu może poprosić o przejęcie edycji.
 
-Symulacja AMS jest podglądem kolorów; STL nie zapisuje kolorów ani konfiguracji wielomateriałowej drukarki. Ostrzeżenie o stole dotyczy obrysu X/Y heksa lub ramki. Przed drukiem sprawdź wysokość, orientację, spasowanie i wynik w swoim slicerze.
+Ostrzeżenie o stole dotyczy obrysu X/Y heksa lub ramki. Ramka z otworem wymaga dodatniej grubości ścianek. Jeżeli zerowa szczelina uniemożliwia eksport ramki, zwiększ szczelinę lub wybierz pełny podkład.
 
 Serwer developerski nasłuchuje na `127.0.0.1`, udostępnia wyłącznie publiczne zasoby aplikacji i blokuje wyjście poza katalog. Dla innego hostingu należy skonfigurować równoważne nagłówki bezpieczeństwa — zobacz `server/static-server.js`.
 
 ## Panele PNG dla HueForge
 
-W planerze wybierz **Grupy PNG**, zaznacz co najmniej dwa sąsiadujące aktywne heksy i kliknij **Zapisz grupę**. Lista paneli pozwala edytować skład i usuwać grupy. Grupy są niezależne od trybu obrazów `span`, zapisują się w `.hexproj` i obsługują undo/redo. Wyłączenie członka lub zmiana siatki naruszająca grupę rozwiązuje ją w tym samym kroku historii.
+W planerze wybierz **Grupy PNG**, zaznacz co najmniej dwa sąsiadujące aktywne heksy i kliknij **Zapisz grupę**. Lista paneli pozwala edytować skład i usuwać grupy. Grupy są niezależne od trybu obrazów `span`, zapisują się w `.hexproj` i obsługują undo/redo. Usunięcie członka lub zmiana siatki naruszająca grupę rozwiązuje ją w tym samym kroku historii.
 
-**Fuga paneli** (0–50 mm, domyślnie 0) zmienia wyłącznie rozstaw w eksporcie, zachowując kadry i kształty półheksów. **Pobierz grupy PNG (.ZIP)** zapisuje jeden przezroczysty PNG na grupę. Nazwy, np. `panel_A1_A2_40.00x69.28mm.png`, zawierają fizyczny bounding box do ustawienia wymiarów w HueForge. Wymiary w mm są niezależne od zaokrąglania liczby pikseli przy wybranym DPI. Ustawienie `Original` wybiera największą gęstość kadru w grupie. Każdy heks grupy musi mieć przypisany obraz.
+**Fuga paneli** (0–50 mm, domyślnie 0) zmienia wyłącznie rozstaw w eksporcie, zachowując kadry i kształty przyciętych heksów. **Pobierz grupy PNG (.ZIP)** zapisuje jeden przezroczysty PNG na grupę. Nazwy, np. `panel_A1_A2_40.00x69.28mm.png`, zawierają fizyczny bounding box do ustawienia wymiarów w HueForge. Wymiary w mm są niezależne od zaokrąglania liczby pikseli przy wybranym DPI. Ustawienie `Original` wybiera największą gęstość kadru w grupie. Każdy heks grupy musi mieć przypisany obraz.
 
 ## Testy
 
@@ -86,7 +92,7 @@ Testy obejmują geometrię i topologię STL, granice stołu, bezpieczeństwo ser
 - `js/hex-math.js`, `js/grid-manager.js` — geometria i stan siatki.
 - `js/image-processor.js` — obrazy i kadry.
 - `js/wall-planner.js`, `js/preview-renderer.js` — renderowanie i interakcje.
-- `js/*generator.js` — ramki, reliefy i zawieszki STL.
+- `js/frame-generator.js` — ramki STL.
 - `js/export-manager.js`, `js/download.js` — eksport i pobieranie.
 - `js/panel-groups.js`, `js/panel-controller.js`, `js/panel-export.js` — grupy paneli HueForge, ich obsługa i renderowanie PNG.
 - `vendor/` — lokalna biblioteka JSZip i jej licencja.
@@ -94,22 +100,17 @@ Testy obejmują geometrię i topologię STL, granice stołu, bezpieczeństwo ser
 
 ## English
 
-HexSplitter is a browser-based hexagonal wall planner, image slicer, and generator of printable STL frames, relief tiles, and Y-hangers. Images are processed locally. There is no backend or user account.
+HexSplitter is a browser-based hexagonal wall planner, image slicer and generator of printable STL frames. It processes images locally.
 
-Run with Node.js 22+: `npm ci`, then `npm start`. Open **http://127.0.0.1:8080**. A static HTTP/HTTPS host can serve `index.html`, `css/`, `js/`, and `vendor/`; opening the app through `file://` is unsupported.
+Run with Node.js 22+ using `npm ci` and `npm start`, then open **http://127.0.0.1:8080**. A static HTTP/HTTPS host can serve `index.html`, `css/`, `js/`, and `vendor/`.
 
-Assign one image to the entire wall, individual images to tiles, or an image across a group of tiles. Rotate, zoom and pan crops, preview frames and an AMS-style reduced palette, then export PNG/JPEG ZIPs, STL ZIPs, or the standalone hanger. The assembly guide uses the browser's print dialog, including Save as PDF. Undo and redo keep up to 100 layout/crop states for the current session (`Ctrl/Cmd+Z`, `Ctrl/Cmd+Shift+Z`, or `Ctrl+Y`); library changes, import, and reset clear that history. Only one tab per origin can edit at a time; other tabs are read-only until they take over.
+Choose rows and columns and select **Create grid**. Select a hex to add available neighbors, remove it after confirmation, or edit its shape. Shape options include a full tile, a half tile and cuts from multiple sides. Arranging and cutting tiles works with the keyboard and touch. Use Tab to reach the selected tile's controls, and Delete to confirm removal. Undo and redo store up to 100 layout and crop states in the current session.
 
-Projects are autosaved locally in IndexedDB with a localStorage layout fallback. Export `.hexproj` backups to keep portable copies. Imports validate the entire project and decode images before replacing local data in one transaction. Legacy projects without a schema version remain supported. Grid size is limited to 25×25. ZIP archives, including `.hexproj` backups, are written to the selected file in chunks where the browser supports the File System Access API. It uses ZIP32 without compression and supports archives below 4 GiB; when the API is unavailable, a buffered download is limited to 256 MiB. The generator still creates one output Blob at a time, and image exports keep copies of their source images. `.hexproj` files keep the import-compatible limits: 250 MiB archive, 300 MiB unpacked data, a 5 MiB JSON manifest, images up to 50 MiB each, and up to 625 images. The save picker requires a secure context and a direct user action. Cancelling the picker, denying access, or a write error stops the save; it does not silently switch to a download. Per-output canvas and source image limits remain 16 and 64 megapixels. Exports show progress and can be cancelled. Relief generation and AMS palette quantization use module Workers where supported, with a main-thread fallback. Undo history is session-only and is not included in project backups.
+Assign one image to the entire wall, individual images to tiles or an image across a span. Export tile PNGs or JPEGs, transparent PNG groups for HueForge, and printable frame STL files. HueForge group filenames include their exact physical bounding box rounded to two decimals. The assembly guide shows the wall map, tile codes, actual sizes and frame dimensions, and can be saved to PDF through the print dialog.
 
-On the planner canvas, use arrow keys to select a cell and Space/Enter to toggle it in grid mode. Touch supports tapping cells and dragging the view. The layout reflows for small screens.
+Use `.hexproj` for a complete portable backup, including the original images. Use `.hexpreset` to reuse a layout and settings without images or photo assignments. Opening a preset keeps the current photo library and supports undo. Legacy backups import with their original edge cuts. Local autosave uses IndexedDB and an optional localStorage layout backup. One tab edits the project at a time.
 
-For HueForge, choose **PNG groups**, select adjacent active hexes and save the group. Panels have an independent gap (0–50 mm, default 0), retain existing crops, and export together as transparent PNGs in one ZIP. Filenames include the exact physical bounding box rounded to two decimals; set that size in HueForge. Groups are saved in `.hexproj`, support undo/redo, and are independent of `span` image groups. Disabling a member or changing grid topology dissolves affected groups as part of that undoable edit.
-
-Run `npx playwright install chromium` and `npm test` for the full suite, or `CHROME_CHANNEL=chrome npm test` with installed Google Chrome. Tests cover geometry, project persistence/import safety, history, tab ownership, streamed ZIP output and cancellation, export workers, server security, and browser behavior. Regression tests live in `tests/`.
-
-AMS preview does not generate a multicolor printer project. Bed checks cover X/Y geometry; inspect height, fit and print settings in your slicer before printing.
-
+Run `npx playwright install chromium` and `npm test` for the full suite, or use `CHROME_CHANNEL=chrome npm test` with Google Chrome. Tests cover cut geometry, STL meshes, preset and project round trips, history, tab ownership, archive cancellation and browser behavior.
 ---
 
 <sub>Projekt pierwotnie stworzony we współpracy z Antigravity (Google DeepMind).</sub>

@@ -5,14 +5,12 @@
     --bg-tertiary: #1a1f2c;
     --surface: #22283a;
     --border: rgba(255, 255, 255, 0.08);
-    --border-focus: rgba(0, 229, 255, 0.4);
+    --border-focus: rgba(128, 185, 232, 0.4);
     --text-primary: #f0f2f5;
     --text-secondary: #9aa5b8;
     --text-muted: #5e6b83;
     
-    --accent-1: #00e5ff;
-    --accent-2: #8a2be2;
-    --accent-gradient: linear-gradient(135deg, #00e5ff 0%, #8a2be2 100%);
+    --accent-1: #80b9e8;
     
     --success: #00e676;
     --warning: #ffd600;
@@ -75,7 +73,6 @@ body {
     width: 32px;
     height: 32px;
     color: var(--accent-1);
-    filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.4));
 }
 
 .logo-text h1 {
@@ -312,7 +309,7 @@ body {
 .form-input:focus, .form-select:focus {
     outline: none;
     border-color: var(--accent-1);
-    box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.15);
+    box-shadow: 0 0 0 2px rgba(128, 185, 232, 0.15);
 }
 
 .form-input[type="number"] {
@@ -372,7 +369,7 @@ body {
 
 .radio-card input:checked + .radio-content {
     border-color: var(--accent-1);
-    background-color: rgba(0, 229, 255, 0.05);
+    background-color: rgba(128, 185, 232, 0.05);
 }
 
 .radio-title {
@@ -430,7 +427,7 @@ body {
 }
 
 .toggle-control input:checked + .toggle-slider {
-    background-color: rgba(0, 229, 255, 0.2);
+    background-color: rgba(128, 185, 232, 0.2);
     border-color: var(--accent-1);
 }
 
@@ -460,7 +457,6 @@ body {
     border-radius: 50%;
     background: var(--accent-1);
     cursor: pointer;
-    box-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
     transition: transform 0.1s ease;
 }
 
@@ -475,7 +471,6 @@ body {
     border-radius: 50%;
     background: var(--accent-1);
     cursor: pointer;
-    box-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
     transition: transform 0.1s ease;
 }
 
@@ -533,7 +528,7 @@ body {
 
 .dropzone:hover, .dropzone.dragover {
     border-color: var(--accent-1);
-    background-color: rgba(0, 229, 255, 0.02);
+    background-color: rgba(128, 185, 232, 0.02);
 }
 
 .file-input-hidden {
@@ -782,14 +777,12 @@ body {
 }
 
 .btn-primary {
-    background: var(--accent-gradient);
-    color: #fff;
-    box-shadow: 0 4px 12px rgba(0, 229, 255, 0.2);
+    background: var(--accent-1);
+    color: #102238;
 }
 
 .btn-primary:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(0, 229, 255, 0.3);
+    background: #a8ccef;
 }
 
 .btn-secondary {
@@ -890,7 +883,7 @@ body {
 
 .progress-fill {
     height: 100%;
-    background: var(--accent-gradient);
+    background: var(--accent-1);
     width: 0%;
     transition: width 0.1s ease;
 }
@@ -907,8 +900,7 @@ body {
     display: none !important;
 }
 
-.frame-settings-sub,
-.relief-settings-sub {
+.frame-settings-sub {
     margin-top: 12px;
     padding-left: 12px;
     border-left: 2px solid var(--border);
@@ -1009,9 +1001,12 @@ body {
     align-items: center;
 }
 
+.layout-preview-box[hidden] { display: none; }
+
 .layout-preview-box canvas {
     max-width: 100%;
     max-height: 400px;
+    object-fit: contain;
     display: block;
     background-color: transparent;
 }
@@ -1037,6 +1032,11 @@ body {
     padding: 12px;
     font-size: 0.85rem;
     vertical-align: middle;
+}
+
+.instructions-table tbody th {
+    background: transparent;
+    border-bottom: 1px solid #eee;
 }
 
 .instructions-table tbody tr:hover {
@@ -1271,7 +1271,7 @@ body {
         max-width: 100%;
     }
     
-    .instructions-table th {
+    .instructions-table thead th {
         background-color: #f5f6f8 !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
@@ -1384,3 +1384,221 @@ body {
 }
 
 
+
+.project-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+:where(button, input, select, summary, canvas):focus-visible {
+    outline: 2px solid var(--accent-1);
+    outline-offset: 2px;
+}
+
+#hex-editor .btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+#planner-canvas:focus-visible {
+    outline-offset: -2px;
+}
+
+.grid-start-help {
+    margin: 6px 0 16px;
+}
+
+.hex-editor {
+    flex: 0 0 auto;
+    max-height: 45%;
+    overflow: auto;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-secondary);
+}
+
+.hex-editor-row,
+.hex-neighbor-actions,
+.hex-shape-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hex-editor-row,
+.hex-neighbor-actions {
+    flex-wrap: wrap;
+}
+
+.hex-editor-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.hex-editor-row > .btn:last-child {
+    margin-left: auto;
+}
+
+.hex-editor summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    margin-top: 6px;
+    font-size: 0.85rem;
+}
+
+.hex-shape-controls {
+    align-items: flex-start;
+    margin-top: 8px;
+}
+
+.hex-shape-fields {
+    min-width: 0;
+    flex: 1;
+    display: grid;
+    gap: 6px;
+    justify-items: start;
+}
+
+#hex-shape-preview {
+    inline-size: min(30%, 120px);
+    height: auto;
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    align-self: flex-start;
+}
+
+#hex-half-side-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+}
+
+#hex-half-side {
+    width: auto;
+    min-width: 4.5rem;
+}
+
+#hex-cut-depths {
+    border: 0;
+    min-inline-size: 0;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(31px, 48px));
+    gap: 4px;
+}
+
+#hex-cut-depths legend {
+    font-size: 0.75rem;
+    margin-bottom: 4px;
+}
+
+#hex-cut-depths label {
+    text-align: center;
+    font-size: 0.75rem;
+}
+
+#hex-cut-depths input {
+    min-inline-size: 0;
+    padding: 4px;
+}
+
+.instruction-map-note {
+    margin-bottom: 8px;
+    font-size: 0.85rem;
+}
+
+.instructions-table canvas {
+    max-width: 100%;
+    height: auto;
+}
+
+.instructions-table code {
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 600px) {
+    #tab-planner .canvas-toolbar {
+        flex: 0 0 auto;
+        height: auto;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 7px 10px;
+    }
+
+    #tab-planner .canvas-toolbar :is(.toolbar-divider, .toolbar-spacer, .canvas-status),
+    #tool-mode-group .icon-inline {
+        display: none;
+    }
+
+    #tool-mode-group .btn {
+        padding-inline: 8px;
+    }
+
+    #tab-planner:has(.hex-editor:not(.hidden)) {
+        flex: 0 0 auto;
+    }
+
+    #tab-planner:has(.hex-editor:not(.hidden)) .canvas-wrapper {
+        flex: 0 0 clamp(200px, 35vh, 380px);
+    }
+
+    .hex-editor {
+        max-height: none;
+        overflow: visible;
+    }
+
+    .hex-editor .btn {
+        min-height: 36px;
+    }
+
+    #hex-cut-depths {
+        grid-template-columns: repeat(3, minmax(38px, 55px));
+    }
+
+    .instructions-table {
+        table-layout: fixed;
+    }
+
+    .instructions-table :is(th, td) {
+        overflow-wrap: anywhere;
+        padding: 6px;
+    }
+}
+
+@page {
+    size: A4;
+    margin: 12mm;
+}
+
+@media print {
+    .layout-preview-box {
+        break-inside: avoid;
+        padding: 3mm;
+    }
+
+    .layout-preview-box canvas {
+        max-height: 110mm;
+    }
+
+    .instructions-table thead {
+        display: table-header-group;
+    }
+
+    .instructions-table tr {
+        break-inside: avoid;
+    }
+
+    .instructions-table :is(th, td) {
+        padding: 1.7mm;
+        font-size: 9pt;
+    }
+
+    .instructions-table canvas {
+        width: auto;
+        height: auto;
+        max-width: 16mm;
+        max-height: 16mm;
+    }
+}

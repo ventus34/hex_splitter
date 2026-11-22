@@ -1,5 +1,5 @@
 import {
-    PROJECT_LIMITS, PROJECT_SCHEMA_VERSION, inferImageMimeType, validateProjectArchiveMetadata
+    PROJECT_LIMITS, PROJECT_SCHEMA_VERSION, inferImageMimeType, validateProjectArchiveMetadata, validateProjectLayout
 } from './project-validation.js?v=1.0.3';
 
 /** Immutable source Blobs are streamed unchanged; only the manifest is encoded. */
@@ -20,7 +20,11 @@ export async function createProjectArchiveEntries(images, layout, { signal } = {
         entries.push({ name: filename, label: filename, blob: image.blob });
     }
     signal?.throwIfAborted();
-    const projectData = { schemaVersion: PROJECT_SCHEMA_VERSION, layout, images: imagesMeta };
+    const projectData = {
+        schemaVersion: PROJECT_SCHEMA_VERSION,
+        layout: validateProjectLayout(structuredClone(layout)),
+        images: imagesMeta
+    };
     const manifest = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
     if (manifest.size > 5 * 1024 * 1024) throw new Error('Opis projektu jest zbyt duży.');
     entries.unshift({ name: 'project.json', label: 'project.json', blob: manifest });

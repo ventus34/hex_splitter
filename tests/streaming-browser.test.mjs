@@ -79,6 +79,8 @@ async function setNumber(selector, value) {
 async function prepareImageGrid(columns = 2, rows = 1) {
     await setNumber('#grid-cols', columns);
     await setNumber('#grid-rows', rows);
+    await page.locator('#btn-create-grid').click();
+    dialogs = [];
     await page.locator('#file-input').setInputFiles({
         name: 'streaming-fixture.svg',
         mimeType: 'image/svg+xml',
@@ -351,9 +353,11 @@ test('slow file writes apply backpressure before the following cell is generated
     await readZip(result.bytes);
 });
 
-test('frame STL and relief STL ZIPs stream as valid CRC-checked archives', async () => {
+test('frame STL ZIPs stream as valid CRC-checked archives', async () => {
     await setNumber('#grid-cols', 1);
     await setNumber('#grid-rows', 1);
+    await page.locator('#btn-create-grid').click();
+    dialogs = [];
     await page.waitForFunction(() => window.gridManager.config.columns === 1 && window.gridManager.config.rows === 1);
     await installPicker();
 
@@ -368,26 +372,7 @@ test('frame STL and relief STL ZIPs stream as valid CRC-checked archives', async
     assert.match(await zip.file(names[0]).async('text'), /^solid /);
     assertClosedValidArchive(result.trace, result.bytes);
 
-    await page.evaluate(() => {
-        window.__streamTrace = [];
-        window.__streamByteChunks = [];
-    });
-    await prepareImageGrid(1, 1);
-    await setNumber('#relief-sectors', 30);
-    await setNumber('#relief-rings', 15);
-    await page.locator('#btn-export-3d-hexes-stl').click();
-    await waitForExportEnd();
-    result = await getStreamResult();
-    zip = await readZip(result.bytes);
-    names = Object.keys(zip.files).filter(name => !zip.files[name].dir);
-    assert.equal(names.length, 1);
-    assert.match(names[0], /^hex_3d_.+\.stl$/);
-    const stl = Buffer.from(await zip.file(names[0]).async('nodebuffer'));
-    const triangleCount = stl.readUInt32LE(80);
-    assert.ok(triangleCount > 0);
-    assert.equal(stl.length, 84 + triangleCount * 50);
-    assertClosedValidArchive(result.trace, result.bytes);
-    assert.deepEqual(result.downloads, []);
+
 });
 
 test('cancel and disk write failure abort without committing, then a retry succeeds', async () => {

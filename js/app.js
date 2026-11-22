@@ -1,9 +1,12 @@
+import HexMath from './hex-math.js?v=1.0.3';
+import GridEditor from './grid-editor.js';
+import AssemblyGuide from './assembly-guide.js';
+import { createPresetBlob, readPresetFile } from './project-preset.js';
 import GridManager from './grid-manager.js?v=1.0.3';
 import ImageProcessor from './image-processor.js?v=1.0.3';
 import WallPlanner from './wall-planner.js?v=1.0.3';
 import PreviewRenderer from './preview-renderer.js?v=1.0.3';
 import ExportManager from './export-manager.js?v=1.0.3';
-import HangerGenerator from './hanger-generator.js?v=1.0.3';
 import { i18n } from './i18n.js?v=1.0.3';
 import DBStore from './project-store.js?v=1.0.3';
 import ProjectSession from './project-session.js?v=1.0.3';
@@ -98,6 +101,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const planner = new WallPlanner('planner-canvas', gridManager, imageProcessor);
     const preview = new PreviewRenderer('preview-canvas', gridManager, imageProcessor);
     const exporter = new ExportManager(gridManager, imageProcessor);
+    const guide = new AssemblyGuide(gridManager, imageProcessor);
     document.getElementById('btn-cancel-export')?.addEventListener('click', () => exporter.cancel());
 
     // Expose for testing
@@ -132,7 +136,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const inputQuality = document.getElementById('export-quality');
     const valQuality = document.getElementById('val-export-quality');
     const jpgQualityGroup = document.getElementById('jpg-quality-group');
-    const chkHalfHexes = document.getElementById('grid-half-hexes');
 
     // Elementy DOM weryfikacji stołu
     const chkBedVerify = document.getElementById('bed-verify');
@@ -152,18 +155,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const frameSettingsSub = document.querySelector('.frame-settings-sub');
     const chkSyncFrameWidth = document.getElementById('chk-sync-frame-width');
 
-    // Elementy DOM konfiguracji reliefu 3D
-    const chkReliefEnable = document.getElementById('relief-enable');
-    const inputReliefHeight = document.getElementById('relief-height');
-    const inputReliefBaseThickness = document.getElementById('relief-base-thickness');
-    const chkReliefInvert = document.getElementById('relief-invert');
-    const inputReliefSectors = document.getElementById('relief-sectors');
-    const inputReliefRings = document.getElementById('relief-rings');
-    const inputReliefBlur = document.getElementById('relief-blur');
-    const valReliefBlur = document.getElementById('val-relief-blur');
-    const reliefSettingsSub = document.querySelector('.relief-settings-sub');
-    const btnExport3dHexesStl = document.getElementById('btn-export-3d-hexes-stl');
-
     // Elementy biblioteki obrazów
     const fileInput = document.getElementById('file-input');
     const dropzone = document.getElementById('dropzone');
@@ -177,27 +168,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Zmienne stanu trybu dopasowania
     const radioImageModes = document.querySelectorAll('input[name="image-mode"]');
 
-    // Opcje podglądu AMS
-    const chkPreviewAms = document.getElementById('chk-preview-ams');
-    const selectAmsColors = document.getElementById('preview-ams-colors');
-
     // Przełączniki trybów pracy
     const btnModeGrid = document.getElementById('btn-mode-grid');
     const btnModeImage = document.getElementById('btn-mode-image');
 
     // Elementy miarki
     const chkPreviewRuler = document.getElementById('chk-preview-ruler');
-
-    // Wizualizacja uchwytów
-    const chkPreviewHangers = document.getElementById('chk-preview-hangers');
-
-    // Elementy DOM uchwytu 3D
-    const inputHangerClearance = document.getElementById('hanger-clearance');
-    const inputHangerBaseThickness = document.getElementById('hanger-base-thickness');
-    const inputHangerRidgeHeight = document.getElementById('hanger-ridge-height');
-    const inputHangerArmWidth = document.getElementById('hanger-arm-width');
-    const inputHangerArmLength = document.getElementById('hanger-arm-length');
-    const btnExportHanger = document.getElementById('btn-export-hanger');
 
     // Zabezpieczenie
     if (!inputCols || !inputRows || !inputHexSize || !selectOrientation || !selectStagger || !inputGap || !selectDpi) {
@@ -228,8 +204,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function readConfigFromUI() {
         return {
-            columns: readNumberInput(inputCols, 4, 1, 25, true),
-            rows: readNumberInput(inputRows, 3, 1, 25, true),
+            columns: gridManager.config.columns,
+            rows: gridManager.config.rows,
             hexSize: readNumberInput(inputHexSize, 100, 10, 500),
             orientation: selectOrientation.value || 'flat-top',
             stagger: selectStagger.value || 'left',
@@ -247,8 +223,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             frameSleeveBase: readNumberInput(inputFrameSleeveBase, 1.2, 0.4, 20),
             singleImageOffsetX: parseBoundedNumber(gridManager.config.singleImageOffsetX, 0, -100_000, 100_000),
             singleImageOffsetY: parseBoundedNumber(gridManager.config.singleImageOffsetY, 0, -100_000, 100_000),
-            singleImageScale: readNumberInput(inputSingleImageZoom, 100, 100, 500) / 100,
-            halfHexes: chkHalfHexes?.checked || false
+            singleImageScale: readNumberInput(inputSingleImageZoom, 100, 20, 500) / 100
         };
     }
 
@@ -267,15 +242,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function updateHexDimensionLabels() {
         const size = readNumberInput(inputHexSize, 100, 10, 500);
-        const orientation = selectOrientation.value;
-
-        if (orientation === 'flat-top') {
-            valHexFlatWidth.textContent = Math.round(size * Math.sqrt(3));
-            valHexTotalHeight.textContent = Math.round(size * 2);
-        } else {
-            valHexFlatWidth.textContent = Math.round(size * Math.sqrt(3));
-            valHexTotalHeight.textContent = Math.round(size * 2);
-        }
+        const { width, height } = HexMath.getHexDimensions(size, selectOrientation.value);
+        const format = new Intl.NumberFormat(i18n.locale, { maximumFractionDigits: 1 });
+        valHexFlatWidth.textContent = format.format(width);
+        valHexTotalHeight.textContent = format.format(height);
     }
 
     function buildProjectLayout() {
@@ -288,13 +258,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 orientation: selectOrientation.value,
                 stagger: selectStagger.value,
                 gap: config.gap,
-                dpi: selectDpi.value,
+                dpi: config.dpi,
                 exportFormat: selectFormat.value,
                 exportQuality: Math.round(config.exportQuality * 100),
                 singleImageOffsetX: config.singleImageOffsetX,
                 singleImageOffsetY: config.singleImageOffsetY,
                 singleImageScale: config.singleImageScale,
-                halfHexes: chkHalfHexes?.checked || false
+                topology: 'explicit'
             },
             bed: {
                 verify: chkBedVerify.checked,
@@ -311,28 +281,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 color: inputFrameColor.value,
                 syncWidth: chkSyncFrameWidth ? chkSyncFrameWidth.checked : true
             },
-            relief: {
-                enable: chkReliefEnable.checked,
-                height: readNumberInput(inputReliefHeight, 2, 0.1, 50),
-                baseThickness: readNumberInput(inputReliefBaseThickness, 1.2, 0.4, 50),
-                invert: chkReliefInvert.checked,
-                sectors: readNumberInput(inputReliefSectors, 120, 30, 360, true),
-                rings: readNumberInput(inputReliefRings, 60, 15, 180, true),
-                blur: readNumberInput(inputReliefBlur, 1.5, 0, 5)
-            },
-            hanger: {
-                clearance: readNumberInput(inputHangerClearance, 0.3, 0, 5),
-                baseThickness: readNumberInput(inputHangerBaseThickness, 1.2, 0.5, 10),
-                ridgeHeight: readNumberInput(inputHangerRidgeHeight, 2, 1, 20),
-                armWidth: readNumberInput(inputHangerArmWidth, 12, 5, 100),
-                armLength: readNumberInput(inputHangerArmLength, 30, 10, 200)
-            },
             previewOptions: {
                 showGaps: chkPreviewGaps.checked,
                 showLabels: chkPreviewLabels.checked,
                 showFrames: chkPreviewFrames.checked,
                 showRuler: chkPreviewRuler ? chkPreviewRuler.checked : true,
-                showHangers: chkPreviewHangers ? chkPreviewHangers.checked : false,
                 background: selectPreviewBg.value
             },
             imageMode: getActiveImageMode(),
@@ -341,7 +294,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             cells: gridManager.getAllCells().map(c => ({
                 q: c.q,
                 r: c.r,
-                enabled: c.enabled,
+                shape: c.shape,
                 imageId: c.imageId,
                 cropRegion: c.cropRegion,
                 groupId: c.groupId,
@@ -363,6 +316,39 @@ document.addEventListener('DOMContentLoaded', async () => {
         canEdit: () => canEditProject() && !projectImportInProgress && !projectResetInProgress
     });
     window.panelController = panelController;
+    const gridEditor = new GridEditor({
+        grid: gridManager, planner,
+        canEdit: () => canEditProject() && !projectImportInProgress && !projectResetInProgress,
+        onChange: ({ topology }) => {
+            if (topology) refreshImageMapping();
+            refreshGridViews();
+            saveProjectState();
+        }
+    });
+
+    function resetGridFromInputs() {
+        gridManager.panelExport.groups = [];
+        gridManager.seedGrid({
+            ...readConfigFromUI(),
+            columns: readNumberInput(inputCols, 4, 1, 25, true),
+            rows: readNumberInput(inputRows, 3, 1, 25, true)
+        });
+        gridEditor.setSelection(null);
+        panelController.resetSelection();
+        panelController.setMode('grid');
+        updateStatusText();
+        refreshImageMapping();
+        refreshGridViews();
+        planner.centerGrid();
+    }
+
+    document.getElementById('btn-create-grid').addEventListener('click', () => {
+        if (!canEditProject() || projectImportInProgress || projectResetInProgress) return;
+        if (gridManager.cells.size && !confirm(i18n.t('confirm_replace_grid'))) return;
+        resetGridFromInputs();
+        saveProjectState();
+    });
+
     function makeSavedLayoutSnapshot() {
         const layoutData = JSON.parse(JSON.stringify(buildProjectLayout()));
         lastLayoutTimestamp = Math.max(Date.now(), lastLayoutTimestamp + 1);
@@ -398,6 +384,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         panelController.refresh();
         if (removedPanels) panelController.notifyRemoved(removedPanels);
         const layoutData = makeSavedLayoutSnapshot();
+        guide.invalidate();
         historyController?.record(getHistorySnapshot(layoutData));
         saveLayoutBackup(layoutData);
         if (layoutSaveTimer !== null) clearTimeout(layoutSaveTimer);
@@ -452,44 +439,41 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    // Obsługa zmian konfiguracji siatki
-    function handleGridConfigChange() {
-        updateStaggerDropdownLabels();
-        updateFrameWidthSync();
-        gridManager.updateConfig(readConfigFromUI());
-        updateHexDimensionLabels();
-        checkBedVolumeAlert();
-        
+    function refreshImageMapping() {
         const mode = getActiveImageMode();
-        if (mode === 'single') {
-            imageProcessor.recalculateSingleImageMapping(gridManager);
-        } else if (mode === 'multi') {
-            imageProcessor.recalculateMultiImageMapping(gridManager);
-        } else if (mode === 'span') {
-            recalculateAllGroupsMapping();
-        }
+        if (mode === 'single') imageProcessor.recalculateSingleImageMapping(gridManager);
+        else if (mode === 'multi') imageProcessor.recalculateMultiImageMapping(gridManager);
+        else recalculateAllGroupsMapping();
+    }
 
+    function refreshGridViews() {
+        checkBedVolumeAlert();
         planner.scheduleRender();
         preview.scheduleRender();
+    }
+
+    function handleGridConfigChange() {
+        const selected = planner.getSelectedCell();
+        const previous = gridManager.config;
+        updateFrameWidthSync();
+        gridManager.updateConfig(readConfigFromUI());
+        const current = gridManager.config;
+        if (current.orientation !== previous.orientation) {
+            updateStaggerDropdownLabels();
+            panelController.resetSelection();
+            const remapped = selected && gridManager.getAllCells().find(cell => cell.label === selected.label);
+            gridEditor.setSelection(remapped);
+        } else {
+            gridEditor.refresh();
+        }
+        updateHexDimensionLabels();
+        if (['orientation', 'stagger', 'hexSize', 'gap'].some(key => previous[key] !== current[key])) refreshImageMapping();
+        refreshGridViews();
         saveProjectState();
     }
 
-    [inputCols, inputRows, inputHexSize, selectOrientation, selectStagger, inputGap, selectDpi, chkHalfHexes].forEach(input => {
-        if (input) {
-            input.addEventListener('input', handleGridConfigChange);
-            if (input.type === 'checkbox') {
-                input.addEventListener('change', handleGridConfigChange);
-            }
-        }
-    });
-
-    [inputHangerClearance, inputHangerBaseThickness, inputHangerRidgeHeight, inputHangerArmWidth, inputHangerArmLength].forEach(input => {
-        if (input) {
-            input.addEventListener('input', () => {
-                preview.scheduleRender();
-                saveProjectState();
-            });
-        }
+    [inputHexSize, selectOrientation, selectStagger, inputGap, selectDpi].forEach(input => {
+        input.addEventListener('input', handleGridConfigChange);
     });
 
     if (selectFormat) {
@@ -578,35 +562,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     [selectFrameType, inputFrameWidth, inputFrameClearance, inputFrameHeight, inputFrameSleeveBase, inputFrameColor].forEach(input => {
         if (input) input.addEventListener('input', handleFrameConfigChange);
     });
-
-    // Konfiguracja reliefu 3D
-    function handleReliefConfigChange() {
-        if (chkReliefEnable.checked) {
-            reliefSettingsSub.classList.remove('hidden');
-        } else {
-            reliefSettingsSub.classList.add('hidden');
-        }
-        saveProjectState();
-    }
-
-    chkReliefEnable.addEventListener('change', handleReliefConfigChange);
-    [inputReliefHeight, inputReliefBaseThickness, chkReliefInvert, inputReliefSectors, inputReliefRings].forEach(input => {
-        if (input) {
-            input.addEventListener('input', handleReliefConfigChange);
-            if (input.type === 'checkbox') {
-                input.addEventListener('change', handleReliefConfigChange);
-            }
-        }
-    });
-
-    if (inputReliefBlur) {
-        inputReliefBlur.addEventListener('input', () => {
-            if (valReliefBlur) {
-                valReliefBlur.textContent = `${inputReliefBlur.value}px`;
-            }
-            handleReliefConfigChange();
-        });
-    }
 
     if (chkSyncFrameWidth) {
         chkSyncFrameWidth.addEventListener('change', () => {
@@ -770,22 +725,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Podgląd AMS (Kwantyzacja kolorów)
-    chkPreviewAms.addEventListener('change', () => {
-        if (chkPreviewAms.checked) {
-            selectAmsColors.classList.remove('hidden');
-        } else {
-            selectAmsColors.classList.add('hidden');
-        }
-        preview.options.amsPreview = chkPreviewAms.checked;
-        preview.scheduleRender();
-    });
-
-    selectAmsColors.addEventListener('change', () => {
-        preview.options.amsColors = parseInt(selectAmsColors.value) || 4;
-        preview.scheduleRender();
-    });
-
     // Obsługa drag & drop plików
     dropzone.addEventListener('click', () => {
         if (canEditProject()) fileInput.click();
@@ -844,7 +783,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     console.error("Nie udało się załadować obrazu:", err);
                 }
             }
-            updateMainImageSelector();
+            updateMainImageSelector({ autoSelect: true });
         
             if (getActiveImageMode() === 'single' && imageProcessor.activeImageId) {
                 imageProcessor.recalculateSingleImageMapping(gridManager);
@@ -900,7 +839,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     imageList.innerHTML = `<p class="empty-list-text">${i18n.t('no_images_loaded')}</p>`;
                 }
             
-                updateMainImageSelector();
+                updateMainImageSelector({ autoSelect: true });
             
                 if (getActiveImageMode() === 'single') {
                     imageProcessor.recalculateSingleImageMapping(gridManager);
@@ -1195,7 +1134,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         applyReadOnlyControls();
     }
 
-    function updateMainImageSelector() {
+    function updateMainImageSelector({ autoSelect = false } = {}) {
         const images = imageProcessor.getAllImages();
         selectMainImage.innerHTML = `<option value="">${i18n.t('select_image_placeholder')}</option>`;
         images.forEach(img => {
@@ -1207,7 +1146,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (imageProcessor.activeImageId && images.some(i => i.id === imageProcessor.activeImageId)) {
             selectMainImage.value = imageProcessor.activeImageId;
-        } else if (images.length > 0) {
+        } else if (autoSelect && images.length > 0) {
             imageProcessor.activeImageId = images[0].id;
             selectMainImage.value = images[0].id;
         } else {
@@ -1244,7 +1183,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 preview.centerGrid();
             } 
             else if (targetTabId === 'tab-instructions') {
-                exporter.generateAssemblyInstructions();
+                guide.refresh();
             }
         });
     });
@@ -1253,6 +1192,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('btn-zoom-in').addEventListener('click', () => {
         const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
         if (activeTab === 'tab-planner') {
+            planner.fitView = false;
             planner.zoom = Math.min(planner.zoom * 1.15, 4.0);
             planner.scheduleRender();
         } else if (activeTab === 'tab-preview') {
@@ -1264,10 +1204,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('btn-zoom-out').addEventListener('click', () => {
         const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
         if (activeTab === 'tab-planner') {
-            planner.zoom = Math.max(planner.zoom / 1.15, 0.1);
+            planner.fitView = false;
+            planner.zoom = Math.max(planner.zoom / 1.15, 0.005);
             planner.scheduleRender();
         } else if (activeTab === 'tab-preview') {
-            preview.zoom = Math.max(preview.zoom / 1.15, 0.1);
+            preview.zoom = Math.max(preview.zoom / 1.15, 0.005);
             preview.scheduleRender();
         }
     });
@@ -1281,26 +1222,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    document.getElementById('btn-select-all').addEventListener('click', () => {
-        gridManager.setAllCellsStatus(true);
-        gridManager.checkBedSizeFit();
-        checkBedVolumeAlert();
-        if (getActiveImageMode() === 'single') {
-            imageProcessor.recalculateSingleImageMapping(gridManager);
-        }
-        planner.scheduleRender();
-        preview.scheduleRender();
-        saveProjectState();
-    });
-
-    document.getElementById('btn-deselect-all').addEventListener('click', () => {
-        gridManager.setAllCellsStatus(false);
-        checkBedVolumeAlert();
-        planner.scheduleRender();
-        preview.scheduleRender();
-        saveProjectState();
-    });
-
     // Opcje podglądu
     const chkPreviewGaps = document.getElementById('chk-preview-gaps');
     const chkPreviewLabels = document.getElementById('chk-preview-labels');
@@ -1312,7 +1233,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         preview.options.showLabels = chkPreviewLabels.checked;
         preview.options.showFrames = chkPreviewFrames.checked;
         preview.options.showRuler = chkPreviewRuler ? chkPreviewRuler.checked : true;
-        preview.options.showHangers = chkPreviewHangers ? chkPreviewHangers.checked : false;
         preview.options.background = selectPreviewBg.value;
 
         // Synchronizuj przełącznik "Pokazuj ramki" z lewym panelem "Włącz generowanie ramek"
@@ -1332,30 +1252,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveProjectState();
     }
 
-    [chkPreviewGaps, chkPreviewLabels, chkPreviewFrames, chkPreviewRuler, chkPreviewHangers, selectPreviewBg].forEach(el => {
+    [chkPreviewGaps, chkPreviewLabels, chkPreviewFrames, chkPreviewRuler, selectPreviewBg].forEach(el => {
         if (el) el.addEventListener('change', updatePreviewOptions);
     });
 
-    // Obsługa trybów interakcji (Siatka vs Kadr / Przesuwanie zdjęć)
-    if (btnModeGrid && btnModeImage) {
-        btnModeGrid.addEventListener('click', () => {
-            btnModeGrid.classList.add('active');
-            btnModeImage.classList.remove('active');
-            planner.interactionMode = 'grid';
-            updateStatusText();
-        });
-        btnModeImage.addEventListener('click', () => {
-            btnModeImage.classList.add('active');
-            btnModeGrid.classList.remove('active');
-            planner.interactionMode = 'image';
-            updateStatusText();
-        });
-    }
+    [btnModeGrid, btnModeImage, document.getElementById('btn-mode-groups')].forEach(button => {
+        button.addEventListener('click', updateStatusText);
+    });
 
     // Nasłuchiwanie zmian siatki z canvasa
     document.getElementById('planner-canvas').addEventListener('gridchange', () => {
-        gridManager.checkBedSizeFit();
-        checkBedVolumeAlert();
         preview.scheduleRender();
         saveProjectState();
     });
@@ -1454,6 +1360,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
 
+            await drainProjectOperations();
+            if (historyRestorePromise) await historyRestorePromise;
             if (layoutSaveTimer !== null) {
                 clearTimeout(layoutSaveTimer);
                 layoutSaveTimer = null;
@@ -1488,6 +1396,54 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    const presetInput = document.getElementById('preset-file-input');
+    document.getElementById('btn-save-preset').addEventListener('click', async () => {
+        if (!projectReady || projectImportInProgress || projectResetInProgress) return;
+        try {
+            const layout = canEditProject() ? buildProjectLayout() : await DBStore.getLayout() ?? buildProjectLayout();
+            window.saveAs(createPresetBlob(layout), 'layout.hexpreset');
+        } catch (error) {
+            console.error(error);
+            alert(i18n.t('preset_save_error'));
+        }
+    });
+    document.getElementById('btn-load-preset').addEventListener('click', () => {
+        if (canEditProject() && !projectImportInProgress && !projectResetInProgress) presetInput.click();
+    });
+    presetInput.addEventListener('change', async () => {
+        const file = presetInput.files[0];
+        presetInput.value = '';
+        if (!file || !canEditProject() || projectImportInProgress || projectResetInProgress) return;
+        const app = document.getElementById('app');
+        const previouslyInert = app.inert;
+        app.inert = true;
+        projectImportInProgress = true;
+        try {
+            const layout = await readPresetFile(file);
+            if (!confirm(i18n.t('confirm_load_preset')) || !canEditProject()) return;
+            await drainProjectOperations();
+            if (historyRestorePromise) await historyRestorePromise;
+            historyController.record(getHistorySnapshot());
+            layout.savedAt = Math.max(Date.now(), lastLayoutTimestamp + 1);
+            await DBStore.saveLayout(layout);
+            if (layoutSaveTimer !== null) { clearTimeout(layoutSaveTimer); layoutSaveTimer = null; }
+            lastLayoutTimestamp = layout.savedAt;
+            applyProjectLayout(layout);
+            saveLayoutBackup(layout, { committed: true });
+            historyController.record(getHistorySnapshot());
+            planner.centerGrid();
+            preview.centerGrid();
+        } catch (error) {
+            console.error(error);
+            alert(i18n.t('preset_load_error'));
+        } finally {
+            projectImportInProgress = false;
+            app.inert = previouslyInert;
+            const button = document.getElementById('btn-load-preset');
+            if (!button.disabled) button.focus({ preventScroll: true });
+        }
+    });
+
     // Resetowanie projektu
     document.getElementById('btn-reset-project').addEventListener('click', async () => {
         if (projectImportInProgress || projectResetInProgress || !canEditProject()) return;
@@ -1514,12 +1470,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             alert(i18n.locale === 'en' ? 'The project could not be cleared because local storage failed.' : 'Nie udało się wyczyścić projektu z powodu błędu lokalnej bazy.');
                             return;
                         }
-                        gridManager.clearImageAssignments();
                         gridManager.panelExport = defaultPanelExport();
-                        panelController.resetSelection();
-                        panelController.setMode('grid');
-                        panelController.refresh();
-                        gridManager.setAllCellsStatus(true);
             
                         // Wyczyść IndexedDB i ImageProcessor
                         imageProcessor.clearAll();
@@ -1540,14 +1491,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                         }
 
 
-                        // Zresetuj tryb interakcji
-                        if (btnModeGrid && btnModeImage) {
-                            btnModeGrid.classList.add('active');
-                            btnModeImage.classList.remove('active');
-                            planner.interactionMode = 'grid';
-                            updateStatusText();
-                        }
-
                         // Przywróć domyślne parametry w UI
                         inputCols.value = 4;
                         inputRows.value = 3;
@@ -1556,7 +1499,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                         selectStagger.value = 'left';
                         inputGap.value = 2;
                         selectDpi.value = 300;
-                        if (chkHalfHexes) chkHalfHexes.checked = false;
                         if (selectFormat) selectFormat.value = 'png';
                         if (inputQuality) inputQuality.value = 90;
                         if (valQuality) valQuality.textContent = '90%';
@@ -1577,20 +1519,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         document.getElementById('frame-color').value = '#1a1a1a';
                         document.getElementById('frame-color-hex').textContent = '#1A1A1A';
             
-                        // Zresetuj reliefy
-                        chkReliefEnable.checked = true;
-                        inputReliefHeight.value = 2.0;
-                        inputReliefBaseThickness.value = 1.2;
-                        chkReliefInvert.checked = false;
-                        inputReliefSectors.value = 120;
-                        inputReliefRings.value = 60;
-                        if (inputReliefBlur) inputReliefBlur.value = 1.5;
-                        if (valReliefBlur) valReliefBlur.textContent = '1.5px';
-            
-                        // Wywołaj handlery
+                        resetGridFromInputs();
+                        panelController.refresh();
                         handleBedVerifyChange();
                         handleFrameConfigChange();
-                        handleReliefConfigChange();
             
                         localStorage.removeItem('hexsplitter_project_layout');
 
@@ -1624,43 +1556,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         await exporter.exportFrameSTL();
     });
 
-    // Eksport heksów 3D jako STL
-    btnExport3dHexesStl?.addEventListener('click', async () => {
-        const reliefEnable = chkReliefEnable.checked;
-        if (!reliefEnable) {
-            alert(i18n.t('alert_relief_disabled'));
-            return;
-        }
-        const options = {
-            reliefHeight: readNumberInput(inputReliefHeight, 2, 0.1, 50),
-            baseThickness: readNumberInput(inputReliefBaseThickness, 1.2, 0.4, 50),
-            invert: chkReliefInvert.checked,
-            sectors: readNumberInput(inputReliefSectors, 120, 30, 360, true),
-            rings: readNumberInput(inputReliefRings, 60, 15, 180, true),
-            blur: readNumberInput(inputReliefBlur, 1.5, 0, 5)
-        };
-        await exporter.exportHexes3DStl(options);
-    });
-
-    // Eksport uchwytu Y (STL)
-    document.getElementById('btn-export-hanger').addEventListener('click', () => {
-        const gridConfig = gridManager.config;
-        const hangerConfig = {
-            clearance: readNumberInput(inputHangerClearance, 0.3, 0, 5),
-            baseThickness: readNumberInput(inputHangerBaseThickness, 1.2, 0.5, 10),
-            ridgeHeight: readNumberInput(inputHangerRidgeHeight, 2, 1, 20),
-            armWidth: readNumberInput(inputHangerArmWidth, 12, 5, 100),
-            armLength: readNumberInput(inputHangerArmLength, 30, 10, 200)
-        };
-        const stlString = HangerGenerator.generateSTL(gridConfig, hangerConfig);
-        const blob = new Blob([stlString], { type: 'application/sla' });
-        saveAs(blob, `hexsplitter_uchwyt_y.stl`);
-    });
-
     // Drukowanie
-    document.getElementById('btn-print-instructions').addEventListener('click', () => {
-        window.print();
-    });
+    document.getElementById('btn-print-instructions').addEventListener('click', () => guide.print());
 
     // Dopasowanie do okna
     window.addEventListener('resize', () => {
@@ -1694,16 +1591,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.querySelector('.id-bed-settings-container')?.classList.toggle('hidden', !chkBedVerify.checked);
         frameSettingsSub.classList.toggle('hidden', !chkFrameEnable.checked);
         document.getElementById('frame-sleeve-base-container')?.classList.toggle('hidden', !chkFrameEnable.checked || selectFrameType.value !== 'sleeve');
-        reliefSettingsSub.classList.toggle('hidden', !chkReliefEnable.checked);
         jpgQualityGroup.classList.toggle('hidden', selectFormat.value !== 'jpg');
         singleImageWrapper.classList.toggle('hidden', getActiveImageMode() !== 'single');
         txtFrameColorHex.textContent = inputFrameColor.value.toUpperCase();
         valQuality.textContent = `${inputQuality.value}%`;
-        if (valReliefBlur) valReliefBlur.textContent = `${inputReliefBlur.value}px`;
         Object.assign(preview.options, {
             showGaps: chkPreviewGaps.checked, showLabels: chkPreviewLabels.checked,
-            showFrames: chkPreviewFrames.checked, showRuler: chkPreviewRuler.checked,
-            showHangers: chkPreviewHangers.checked, background: selectPreviewBg.value
+            showFrames: chkPreviewFrames.checked, showRuler: chkPreviewRuler.checked, background: selectPreviewBg.value
         });
         updateMainImageSelector();
         updateStaggerDropdownLabels();
@@ -1717,28 +1611,34 @@ document.addEventListener('DOMContentLoaded', async () => {
         gridManager.config.singleImageOffsetY = layout.grid?.singleImageOffsetY ?? 0;
         if (inputSingleImageZoom) inputSingleImageZoom.value = Math.round((layout.grid?.singleImageScale ?? 1) * 100);
         if (valSingleImageZoom) valSingleImageZoom.value = inputSingleImageZoom.value;
-        if (imageProcessor.getImage(layout.activeImageId)) imageProcessor.activeImageId = layout.activeImageId;
-        gridManager.updateConfig(readConfigFromUI());
-        for (const savedCell of layout.cells || []) {
-            const cell = gridManager.getCell(savedCell.q, savedCell.r);
-            if (!cell) continue;
-            const hasImage = savedCell.imageId && imageProcessor.getImage(savedCell.imageId);
-            Object.assign(cell, {
-                enabled: savedCell.enabled ?? true, imageId: hasImage ? savedCell.imageId : null,
+        imageProcessor.activeImageId = imageProcessor.getImage(layout.activeImageId) ? layout.activeImageId : null;
+        gridManager.config = { ...gridManager.config, ...readConfigFromUI(),
+            columns: layout.grid.columns, rows: layout.grid.rows, topology: 'explicit', halfHexes: false };
+        gridManager.restoreCells(layout.cells.map(savedCell => {
+            const hasImage = imageProcessor.getImage(savedCell.imageId);
+            return {
+                q: savedCell.q,
+                r: savedCell.r,
+                shape: structuredClone(savedCell.shape),
+                imageId: hasImage ? savedCell.imageId : null,
                 cropRegion: hasImage ? structuredClone(savedCell.cropRegion ?? null) : null,
                 groupId: hasImage ? savedCell.groupId : null,
                 groupShiftX: hasImage ? savedCell.groupShiftX : null,
                 groupShiftY: hasImage ? savedCell.groupShiftY : null,
                 groupZoom: hasImage ? savedCell.groupZoom : null
-            });
+            };
+        }));
+        if (getActiveImageMode() === 'single' && imageProcessor.activeImageId &&
+            !gridManager.getActiveCells().some(cell => cell.imageId)) {
+            imageProcessor.recalculateSingleImageMapping(gridManager);
         }
         gridManager.panelExport = structuredClone(layout.panelExport ?? defaultPanelExport());
         panelController.resetSelection();
         panelController.refresh();
-        if (getActiveImageMode() === 'single' && !(layout.cells || []).length) imageProcessor.recalculateSingleImageMapping(gridManager);
-        gridManager.checkBedSizeFit();
+        gridEditor.setSelection(null);
         syncProjectUI();
-        checkBedVolumeAlert();
+        refreshGridViews();
+        guide.invalidate();
         planner.isDraggingImage = false;
         planner.draggedCell = null;
         planner.scheduleRender();
@@ -1910,7 +1810,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             if (layout) applyProjectLayout(layout);
             else {
-                gridManager.updateConfig(readConfigFromUI());
+                resetGridFromInputs();
                 syncProjectUI();
             }
 
@@ -1933,9 +1833,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const sessionDisabledState = new WeakMap();
     const viewOnlyActions = new Set([
-        'btn-save-project', 'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit',
-        'btn-export-hanger', 'btn-export-hexes', 'btn-export-frame-stl',
-        'btn-export-3d-hexes-stl', 'btn-print-instructions', 'btn-cancel-export'
+        'btn-save-project', 'btn-save-preset', 'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit',
+        'btn-export-hexes', 'btn-export-frame-stl', 'btn-print-instructions', 'btn-cancel-export',
     ]);
     function isViewOnlyControl(element) {
         return element.id === 'select-lang' || element.id === 'btn-take-over-project' ||
@@ -1975,6 +1874,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const dropzoneElement = document.getElementById('dropzone');
         if (dropzoneElement) dropzoneElement.setAttribute('aria-disabled', String(readOnly));
         imageList.querySelectorAll('.image-item').forEach(item => { item.draggable = !readOnly; });
+        if (!readOnly && gridEditor.selected) gridEditor.updateDraft();
     }
 
     function renderProjectSessionStatus(status) {
@@ -2054,9 +1954,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             canWrite: projectSession.canWrite
         });
         const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
-        if (activeTab === 'tab-instructions') {
-            exporter.generateAssemblyInstructions();
-        }
+        if (activeTab === 'tab-instructions') guide.invalidate();
     });
 
     // Rozpocznij przywracanie stanu po wczytaniu DOM

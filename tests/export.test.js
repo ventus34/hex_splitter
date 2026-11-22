@@ -193,43 +193,6 @@ test('disk output streams archives larger than the former 256 MiB memory cap wit
     assert.equal(env.exporter.busy, false);
 });
 
-test('3D relief preflight uses the disk ZIP32 limit instead of the memory fallback cap', async t => {
-    const env = environment(t, { cells: 625 });
-    const globals = ['showSaveFilePicker', 'Worker', 'OffscreenCanvas'];
-    const previous = new Map(globals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
-    let committed = false;
-    let generated = 0;
-    globalThis.showSaveFilePicker = () => Promise.resolve({
-        createWritable: () => new WritableStream({ write() {}, close() { committed = true; } })
-    });
-    globalThis.OffscreenCanvas = class {};
-    globalThis.Worker = class {
-        postMessage(message) {
-            if (message.type === 'init') queueMicrotask(() => this.onmessage?.({ data: { type: 'ready' } }));
-            if (message.type === 'generate') {
-                generated++;
-                const buffer = new Uint8Array([1, 2, 3, 4]).buffer;
-                queueMicrotask(() => this.onmessage?.({ data: { type: 'result', requestId: message.requestId, buffer } }));
-            }
-        }
-        terminate() {}
-    };
-    t.after(() => {
-        for (const key of globals) {
-            const descriptor = previous.get(key);
-            descriptor ? Object.defineProperty(globalThis, key, descriptor) : delete globalThis[key];
-        }
-    });
-
-    const result = await env.exporter.exportHexes3DStl({ sectors: 360, rings: 180, blur: 0 });
-
-    assert.equal(result.count, 625);
-    assert.equal(generated, 625);
-    assert.equal(committed, true);
-    assert.equal(env.downloads.length, 0);
-    assert.equal(env.exporter.busy, false);
-});
-
 test('failed tile encoding downloads no partial archive and releases the export', async t => {
     const env = environment(t, { failOn: 2 });
     await env.exporter.exportHexesZip();
@@ -246,15 +209,6 @@ test('concurrent export requests do not create overlapping jobs', async t => {
     assert.equal(env.downloads.length, 1);
     assert.equal(env.alerts.length, 1);
     assert.match(env.alerts[0], /already running/);
-});
-
-test('oversized relief archive is refused before generating any tile', async t => {
-    const env = environment(t, { cells: 625 });
-    await env.exporter.exportHexes3DStl({ sectors: 360, rings: 180 });
-    assert.equal(env.downloads.length, 0);
-    assert.equal(env.renders.length, 0);
-    assert.match(env.alerts[0], /memory limit/);
-    assert.ok(env.bitmaps.every(bitmap => bitmap.closed));
 });
 
 test('cancelling an in-flight tile releases the export without downloading a partial archive', async t => {
@@ -340,43 +294,6 @@ test('cancellation during ZIP writing aborts the destination and never downloads
     assert.equal(env.downloads.length, 0);
     assert.equal(env.exporter.busy, false);
     assert.equal(env.alerts[0], i18n.t('export_cancelled'));
-});
-
-test('3D relief export uses a dedicated worker and packages its transferred STL result', async t => {
-    const env = environment(t, { cells: 1 });
-    const originalWorker = Object.getOwnPropertyDescriptor(globalThis, 'Worker');
-    const originalOffscreenCanvas = Object.getOwnPropertyDescriptor(globalThis, 'OffscreenCanvas');
-    const workers = [];
-    class WorkerFixture {
-        constructor(url, options) { this.url = url; this.options = options; this.messages = []; this.terminated = false; workers.push(this); }
-        postMessage(message, transfer = []) {
-            this.messages.push({ message, transfer });
-            if (message.type === 'init') queueMicrotask(() => this.onmessage?.({ data: { type: 'ready' } }));
-            if (message.type === 'generate') {
-                const buffer = new Uint8Array([1, 2, 3, 4]).buffer;
-                queueMicrotask(() => this.onmessage?.({ data: { type: 'result', requestId: message.requestId, buffer } }));
-            }
-        }
-        terminate() { this.terminated = true; }
-    }
-    globalThis.Worker = WorkerFixture;
-    globalThis.OffscreenCanvas = class {};
-    t.after(() => {
-        if (originalWorker) Object.defineProperty(globalThis, 'Worker', originalWorker);
-        else delete globalThis.Worker;
-        if (originalOffscreenCanvas) Object.defineProperty(globalThis, 'OffscreenCanvas', originalOffscreenCanvas);
-        else delete globalThis.OffscreenCanvas;
-    });
-
-    const result = await env.exporter.exportHexes3DStl({ sectors: 30, rings: 15, blur: 0 });
-    assert.equal(result.count, 1);
-    assert.equal(workers.length, 1);
-    assert.deepEqual(workers[0].messages.map(item => item.message.type), ['init', 'generate']);
-    assert.equal(workers[0].messages[0].transfer.length, 1);
-    assert.equal(workers[0].options.type, 'module');
-    assert.equal(workers[0].terminated, true);
-    const archive = await JSZip.loadAsync(await env.downloads[0].blob.arrayBuffer());
-    assert.deepEqual([...await archive.file('hex_3d_A1.stl').async('uint8array')], [1, 2, 3, 4]);
 });
 
 // Exercise the actual panel renderer and ZIP manager with a small Canvas test double;

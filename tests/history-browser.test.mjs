@@ -96,74 +96,48 @@ async function setHistoryButtonsState(canUndo, canRedo) {
     }, { canUndo, canRedo });
 }
 
-test('grid dimension undo and redo restores dimensions and the cell enabled mask', async () => {
+test('starter dimensions take effect on create and undo restores the existing layout', async () => {
     const initial = await gridState();
-    assert.equal(initial.columns, 4);
-    assert.equal(initial.rows, 3);
-    assert.ok(initial.cells.every(cell => cell.enabled));
-
     await setNumber('#grid-cols', 2);
-    await page.waitForFunction(() => window.gridManager.config.columns === 2);
-    await page.locator('#planner-canvas').focus();
-    await page.keyboard.press('Space');
-    await page.waitForFunction(() => window.gridManager.getAllCells()[0]?.enabled === false);
     await setNumber('#grid-rows', 2);
-    await page.waitForFunction(() => window.gridManager.config.rows === 2);
+    assert.deepEqual(await gridState(), initial);
 
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#btn-create-grid').click();
+    await page.waitForFunction(() => window.gridManager.cells.size === 4);
     const edited = await gridState();
-    assert.equal(edited.columns, 2);
-    assert.equal(edited.rows, 2);
-    assert.equal(edited.cells.length, 4);
-    assert.equal(edited.cells[0].enabled, false);
+    assert.deepEqual([edited.columns, edited.rows], [2, 2]);
 
     await page.locator('#btn-undo').click();
-    await page.waitForFunction(() => window.gridManager.config.rows === 3);
-    assert.equal((await gridState()).cells[0].enabled, false);
-
-    await page.locator('#btn-undo').click();
-    await page.waitForFunction(() => window.gridManager.getAllCells()[0]?.enabled === true);
-    assert.equal((await gridState()).columns, 2);
-
-    await page.locator('#btn-undo').click();
-    await page.waitForFunction(() => window.gridManager.config.columns === 4);
-    assert.ok((await gridState()).cells.every(cell => cell.enabled));
-
+    await page.waitForFunction(() => window.gridManager.cells.size === 12);
+    assert.deepEqual(await gridState(), initial);
     await page.locator('#btn-redo').click();
-    await page.waitForFunction(() => window.gridManager.config.columns === 2);
-    await page.locator('#btn-redo').click();
-    await page.waitForFunction(() => window.gridManager.getAllCells()[0]?.enabled === false);
-    await page.locator('#btn-redo').click();
-    await page.waitForFunction(() => window.gridManager.config.rows === 2);
-    assert.equal((await gridState()).cells[0].enabled, false);
+    await page.waitForFunction(() => window.gridManager.cells.size === 4);
+    assert.deepEqual(await gridState(), edited);
 });
 
-test('canvas keyboard toggle is undoable, and shortcuts stay out of text fields', async () => {
+test('keyboard removal requires confirmation and is undoable', async () => {
     const canvas = page.locator('#planner-canvas');
     await canvas.focus();
     await page.keyboard.press('Space');
-    await page.waitForFunction(() => window.gridManager.getAllCells()[0]?.enabled === false);
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.keyboard.press('Delete');
+    assert.equal((await gridState()).cells.length, 12);
+    page.once('dialog', dialog => dialog.accept());
+    await page.keyboard.press('Delete');
+    await page.waitForFunction(() => window.gridManager.cells.size === 11);
 
     await page.keyboard.press('Control+z');
-    await page.waitForFunction(() => window.gridManager.getAllCells()[0]?.enabled === true);
+    await page.waitForFunction(() => window.gridManager.cells.size === 12);
     await page.keyboard.press('Control+y');
-    await page.waitForFunction(() => window.gridManager.getAllCells()[0]?.enabled === false);
-    await page.keyboard.press('Control+z');
-    await page.waitForFunction(() => window.gridManager.getAllCells()[0]?.enabled === true);
-    await page.keyboard.press('Meta+Shift+z');
-    await page.waitForFunction(() => window.gridManager.getAllCells()[0]?.enabled === false);
-
-    await setNumber('#grid-cols', 2);
-    await page.waitForFunction(() => window.gridManager.config.columns === 2);
-    await setHistoryButtonsState(true, false);
+    await page.waitForFunction(() => window.gridManager.cells.size === 11);
     await page.locator('#grid-rows').focus();
     await page.keyboard.press('Control+z');
-    assert.equal((await gridState()).columns, 2, 'Ctrl+Z in a numeric input must not undo the project');
+    assert.equal((await gridState()).cells.length, 11, 'Ctrl+Z in a numeric input must not undo the project');
 
     await page.locator('#btn-undo').click();
-    await page.waitForFunction(() => window.gridManager.config.columns === 4);
-    await setHistoryButtonsState(true, true);
-    await page.locator('#btn-redo').click();
-    await page.waitForFunction(() => window.gridManager.config.columns === 2);
+    await page.waitForFunction(() => window.gridManager.cells.size === 12);
+    await setHistoryButtonsState(false, true);
 });
 
 test('rotation and zoom undo as separate edits and restore IndexedDB values', async () => {
@@ -195,12 +169,16 @@ test('rotation and zoom undo as separate edits and restore IndexedDB values', as
 
 test('adding or removing library images resets history without resurrecting deleted assets', async () => {
     await setNumber('#grid-cols', 2);
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#btn-create-grid').click();
     await page.waitForFunction(() => window.gridManager.config.columns === 2);
     await setHistoryButtonsState(true, false);
 
     await uploadImage('first.svg');
     await setHistoryButtonsState(false, false);
     await setNumber('#grid-rows', 2);
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#btn-create-grid').click();
     await page.waitForFunction(() => window.gridManager.config.rows === 2);
     await setHistoryButtonsState(true, false);
 
@@ -246,6 +224,8 @@ test('a continuous image positioning drag is a single undo and redo step', async
 
 test('clearing an empty project starts a fresh history', async () => {
     await setNumber('#grid-cols', 2);
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#btn-create-grid').click();
     await setHistoryButtonsState(true, false);
     page.once('dialog', dialog => dialog.accept());
     await page.locator('#btn-reset-project').click();

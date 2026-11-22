@@ -1,6 +1,7 @@
 import HexMath from './hex-math.js';
+import { MAX_GRID_CELLS, starterCoordinates } from './grid-topology.js';
 
-const MAX_CELLS = 625;
+const MAX_CELLS = MAX_GRID_CELLS;
 const keyOf = cell => `${cell.q},${cell.r}`;
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -16,6 +17,9 @@ export function defaultPanelExport() {
 
 /** Layout coordinates follow GridManager.generateGrid(), including pointy-top rows. */
 function layoutCellMap(config, savedCells) {
+    if (config.topology === 'explicit') {
+        return new Map(savedCells.map(cell => [keyOf(cell), { ...cell, enabled: true }]));
+    }
     const columns = config.columns ?? 4;
     const rows = config.rows ?? 3;
     const orientation = config.orientation ?? 'flat-top';
@@ -25,13 +29,9 @@ function layoutCellMap(config, savedCells) {
         columns > 25 || rows > 25 || !['flat-top', 'pointy-top'].includes(orientation)) {
         fail('PANEL_INVALID_STATE', 'Invalid panel grid.');
     }
-    for (let col = 0; col < columns; col++) {
-        for (let row = 0; row < rows; row++) {
-            const q = orientation === 'flat-top' ? col : col - Math.floor(row / 2);
-            const r = orientation === 'flat-top' ? row - Math.floor(col / 2) : row;
-            const value = saved.get(`${q},${r}`);
-            result.set(`${q},${r}`, { q, r, enabled: value?.enabled ?? true });
-        }
+    for (const { q, r } of starterCoordinates(columns, rows, orientation)) {
+        const key = keyOf({ q, r });
+        result.set(key, { q, r, enabled: saved.get(key)?.enabled ?? true });
     }
     return result;
 }
